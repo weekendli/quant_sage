@@ -1,0 +1,71 @@
+# Example configuration / desired contract. Adapt paths, dates and semantics to actual dataset.
+project: quantsage_empirical_discovery
+seed: 42
+storage:
+  raw_uri: ./data/raw
+  artifacts_uri: ./artifacts
+  registry_uri: ./artifacts/registry.sqlite
+  temporary_uri: ./artifacts/tmp
+resources:
+  memory_limit: 8GB
+  threads: 4
+  max_concurrent_stages: 2
+  max_feature_candidates: 40
+  max_cube_cells_per_hypothesis: 24
+input:
+  format: parquet
+  adapter: l1_snapshots
+  exchange_timezone: Asia/Shanghai
+  instrument_column: instrument_id
+  timestamp_column: local_time
+  available_timestamp_column: null # flag unknown; do not silently assume zero latency
+  timestamp_kind: exchange_event_time
+  columns:
+    bid_price_1: bid1
+    ask_price_1: ask1
+    bid_size_1: bidvol1
+    ask_size_1: askvol1
+    last_price: last_price
+    volume: volume
+  volume_semantics: unknown # specify cumulative_session/incremental if known
+  allow_research_only_without_availability: true
+market:
+  calendar_id: cn_gov_bond_futures_example # must be configured/verified by user
+  max_quote_staleness: 2s
+  prevent_cross_session_fill: true
+splits:
+  method: chronological
+  # Replace with real historical bounds before executing on real data.
+  train: {start: '2024-01-01', end: '2024-06-30'}
+  development: {start: '2024-07-01', end: '2024-09-30'}
+  final_holdout: {start: '2024-10-01', end: '2024-12-31'}
+  embargo: 30m
+research:
+  mode: observatory
+  time_bases: [clock_time, quote_event_count]
+  windows: [10s, 30s, 1m, 5m]
+  quote_event_windows: [20, 100]
+  outcomes: [mid_return, future_realized_volatility]
+  horizons: [1m, 5m, 30m]
+baselines:
+  fit_on: train
+  group_by: [instrument_id, session_bucket]
+  min_group_observations: 200
+  quantiles: [0.01, 0.05, 0.5, 0.95, 0.99]
+events:
+  enabled_detectors: [extreme, divergence, online_change]
+  cooldown: 30s
+  session_reset: true
+regimes:
+  enabled: [rule_based]
+  forbid_future_smoothed_states: true
+cube:
+  search: adaptive_beam
+  maximum_ast_depth: 3
+  max_cells_per_hypothesis: 24
+validation:
+  unit: event_episode
+  bootstrap_unit: trading_day
+  holdout_access: frozen_only
+  multiple_testing: bh_fdr
+  preserve_search_ledger: true
