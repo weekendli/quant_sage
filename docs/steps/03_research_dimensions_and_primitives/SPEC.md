@@ -16,19 +16,23 @@
 
 每个维度存 `required_fields`, `supported_time_bases`, `constraints`, `enabled/disabled_reason`, `candidate_primitives`。不要因为用户想分析成交订单流就虚构不存在的逐笔数据。
 
+## 本数据源的可用性
+
+参见 [L2 Schema](../../references/gov_bond_l2.schema.md)。当前 `part-0.parquet` 包含逐条 `TRADINGTIME`、五档盘口和区间/累计成交字段，可经 Stage 02 质量检查后构造盘口、报价间隔与窗口价格等研究视图。功能仍受日历、tick size、有效报价、成交量语义与可用性约束；缺少逐条 `available_time` 时保留 `availability_unverified`。`ORDERRATE` 是五档委比，不能冒充一档 OBI；快照不提供真实逐笔订单或撤单。
+
 ## Primitive 目录（MVP）
 
 | Primitive | 定义 | 必需数据 / 限制 |
 |---|---|---|
-| `mid` | `(bid1 + ask1)/2` | 正常有效盘口 |
-| `spread_ticks` | `(ask1 - bid1)/tick_size` | tick size 已知 |
+| `mid` | `(bid_price_1 + ask_price_1)/2` | 正常有效盘口 |
+| `spread_ticks` | `(ask_price_1 - bid_price_1)/tick_size` | tick size 已知 |
 | `depth_bid_1`, `depth_ask_1` | 最优档可见量 | 快照深度 |
-| `depth_imbalance_1` | `(B-A)/(B+A)` | B+A>0，否则 null |
-| `microprice_proxy` | `(ask1*B + bid1*A)/(A+B)` | 为加权价代理，并非真实成交价 |
+| `depth_imbalance_1` | `(B-A)/(B+A)` | B=bid_size_1，A=ask_size_1；B+A>0，否则 null |
+| `microprice_proxy` | `(ask_price_1*B + bid_price_1*A)/(A+B)` | 为加权价代理，并非真实成交价 |
 | `mid_return` | mid 的对数/差分变化 | 非正价格禁止对数；保留 tick-based 备选 |
 | `quote_interarrival` | 相邻行情更新的时间差 | 先按源+合约排序、处理重复 |
 | `quote_update_count` | 给定窗口内更新计数 | 需区分事件/时钟时间 |
-| `volume_increment` | 相邻累计量差或原生增量 | 类型已验证；处理会话重置 |
+| `volume_increment` | 相邻累计量差或原生增量 | 原始 TradeVolume 已为区间量；TotalVolume 才做差分，处理日/会话边界 |
 | `relative_price_move` | 经 tick/风险尺度合理归一的两合约变化差 | 两边都在 staleness 容忍范围内 |
 
 `order_flow_imbalance` 只在输入足以支持明确 OFI 定义时启用；在一般 L1 快照中可输出 `snapshot_ofi_proxy`，但命名、文档和限制必须清楚。无法获得真实撤单和成交方向时不得宣称还原真实订单流。

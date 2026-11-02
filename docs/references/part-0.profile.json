@@ -1,0 +1,265 @@
+{
+  "sample_path": "part-0.parquet",
+  "sample_sha256": "19e8cdaba9db4f652012a7c7be38efaffd2d580bc44ed6b3d25ef5808f5883ba",
+  "scope": "Full single-file descriptive audit; not Stage 02 acceptance or market-quality certification",
+  "reproduce_command": "python3 docs/references/inspect_l2_sample.py",
+  "tool_versions": {
+    "pyarrow": "21.0.0",
+    "pandas": "2.3.3"
+  },
+  "row_count": 3178989,
+  "column_count": 66,
+  "row_group_count": 26,
+  "coverage": {
+    "trading_day_count": 20,
+    "trade_date_min": "2026-01-05",
+    "trade_date_max": "2026-01-30",
+    "event_time_min": "2026-01-05 09:29:00.400000",
+    "event_time_max": "2026-01-30 15:24:14.200000",
+    "instruments": [
+      "T2603",
+      "T2606",
+      "T2609",
+      "TF2603",
+      "TF2606",
+      "TF2609",
+      "TL2603",
+      "TL2606",
+      "TL2609",
+      "TS2603",
+      "TS2606",
+      "TS2609"
+    ],
+    "products": [
+      "T",
+      "TF",
+      "TL",
+      "TS"
+    ],
+    "markets": [
+      "CFFEX"
+    ],
+    "source_files": [
+      "TFL2_2023_202607/TFL2_TAQ_202601.txt"
+    ],
+    "source_row_min": 1,
+    "source_row_max": 3178989,
+    "ingest_runs": [
+      "20261101T164334Z-a29d3957"
+    ]
+  },
+  "by_instrument": [
+    {
+      "instrument": "T2603",
+      "product": "T",
+      "row_count": 489775,
+      "trading_day_count": 20,
+      "time_min": "2026-01-05 09:29:00.400000",
+      "time_max": "2026-01-30 15:24:14.200000"
+    },
+    {
+      "instrument": "T2606",
+      "product": "T",
+      "row_count": 242770,
+      "trading_day_count": 20,
+      "time_min": "2026-01-05 09:29:00.400000",
+      "time_max": "2026-01-30 15:24:14.200000"
+    },
+    {
+      "instrument": "T2609",
+      "product": "T",
+      "row_count": 108226,
+      "trading_day_count": 20,
+      "time_min": "2026-01-05 09:29:00.400000",
+      "time_max": "2026-01-30 15:24:14.200000"
+    },
+    {
+      "instrument": "TF2603",
+      "product": "TF",
+      "row_count": 377499,
+      "trading_day_count": 20,
+      "time_min": "2026-01-05 09:29:00.400000",
+      "time_max": "2026-01-30 15:24:14.200000"
+    },
+    {
+      "instrument": "TF2606",
+      "product": "TF",
+      "row_count": 214310,
+      "trading_day_count": 20,
+      "time_min": "2026-01-05 09:29:00.400000",
+      "time_max": "2026-01-30 15:24:14.200000"
+    },
+    {
+      "instrument": "TF2609",
+      "product": "TF",
+      "row_count": 74402,
+      "trading_day_count": 20,
+      "time_min": "2026-01-05 09:29:00.400000",
+      "time_max": "2026-01-30 15:24:14.200000"
+    },
+    {
+      "instrument": "TL2603",
+      "product": "TL",
+      "row_count": 542081,
+      "trading_day_count": 20,
+      "time_min": "2026-01-05 09:29:00.400000",
+      "time_max": "2026-01-30 15:24:14.200000"
+    },
+    {
+      "instrument": "TL2606",
+      "product": "TL",
+      "row_count": 388733,
+      "trading_day_count": 20,
+      "time_min": "2026-01-05 09:29:00.400000",
+      "time_max": "2026-01-30 15:24:14.200000"
+    },
+    {
+      "instrument": "TL2609",
+      "product": "TL",
+      "row_count": 282435,
+      "trading_day_count": 20,
+      "time_min": "2026-01-05 09:29:00.400000",
+      "time_max": "2026-01-30 15:24:14.200000"
+    },
+    {
+      "instrument": "TS2603",
+      "product": "TS",
+      "row_count": 267452,
+      "trading_day_count": 20,
+      "time_min": "2026-01-05 09:29:00.400000",
+      "time_max": "2026-01-30 15:24:14.200000"
+    },
+    {
+      "instrument": "TS2606",
+      "product": "TS",
+      "row_count": 108952,
+      "trading_day_count": 20,
+      "time_min": "2026-01-05 09:29:00.400000",
+      "time_max": "2026-01-30 15:24:14.200000"
+    },
+    {
+      "instrument": "TS2609",
+      "product": "TS",
+      "row_count": 82354,
+      "trading_day_count": 20,
+      "time_min": "2026-01-05 09:29:00.400000",
+      "time_max": "2026-01-30 15:24:14.200000"
+    }
+  ],
+  "null_counts": {
+    "TRADINGDATE": 0,
+    "TRADINGTIME": 0,
+    "SYMBOL": 0,
+    "OPENPRICE": 0,
+    "LASTPRICE": 0,
+    "HIGHPRICE": 0,
+    "LOWPRICE": 0,
+    "SETTLEPRICE": 0,
+    "PRESETTLEPRICE": 0,
+    "CLOSEPRICE": 0,
+    "PRECLOSEPRICE": 0,
+    "TRADEVOLUME": 0,
+    "TOTALVOLUME": 0,
+    "TRADEAMOUNT": 0,
+    "TOTALAMOUNT": 0,
+    "PRETOTALPOSITION": 0,
+    "TOTALPOSITION": 0,
+    "PREPOSITIONCHANGE": 0,
+    "PRICEUPLIMIT": 0,
+    "PRICEDOWNLIMIT": 0,
+    "BUYORSELL": 0,
+    "OPENCLOSE": 0,
+    "BUYPRICE01": 0,
+    "BUYPRICE02": 0,
+    "BUYPRICE03": 0,
+    "BUYPRICE04": 0,
+    "BUYPRICE05": 0,
+    "SELLPRICE01": 0,
+    "SELLPRICE02": 0,
+    "SELLPRICE03": 0,
+    "SELLPRICE04": 0,
+    "SELLPRICE05": 0,
+    "BUYVOLUME01": 0,
+    "BUYVOLUME02": 0,
+    "BUYVOLUME03": 0,
+    "BUYVOLUME04": 0,
+    "BUYVOLUME05": 0,
+    "SELLVOLUME01": 0,
+    "SELLVOLUME02": 0,
+    "SELLVOLUME03": 0,
+    "SELLVOLUME04": 0,
+    "SELLVOLUME05": 0,
+    "DELTA": 0,
+    "PREDELTA": 0,
+    "SETTLEGROUPID": 0,
+    "SETTLEID": 0,
+    "CHANGE": 0,
+    "CHANGERATIO": 0,
+    "CONTINUESIGN": 0,
+    "MARKET": 0,
+    "UNIX": 0,
+    "POSITIONCHANGE": 0,
+    "CONTINUESIGNNAME": 0,
+    "SECURITYID": 0,
+    "SHORTNAME": 0,
+    "AVERAGEPRICE": 0,
+    "ORDERRATE": 0,
+    "ORDERDIFF": 0,
+    "AMPLITUDE": 0,
+    "VOLRATE": 0,
+    "SELLVOL": 0,
+    "BUYVOL": 0,
+    "product": 0,
+    "source_file": 0,
+    "source_row": 0,
+    "ingest_run_id": 0
+  },
+  "quality": {
+    "unix_local_offset_mismatch_count": 0,
+    "event_date_mismatch_count": 0,
+    "crossed_l1_count": 0,
+    "locked_l1_count": 0,
+    "nonpositive_l1_count": 0,
+    "negative_l1_size_count": 0,
+    "negative_volume_count": 0,
+    "orderrate_outside_ratio_count": 0,
+    "zero_settleprice_count": 3178749,
+    "zero_closeprice_count": 3178509,
+    "orderrate_min": "-0.9446",
+    "orderrate_max": "0.9811"
+  },
+  "duplicate_event_keys": {
+    "duplicate_key_groups": 0,
+    "excess_rows": 0,
+    "max_multiplicity": 1
+  },
+  "duplicate_provenance_keys": {
+    "duplicate_key_groups": 0,
+    "excess_rows": 0,
+    "max_multiplicity": 1
+  },
+  "physical_order": {
+    "group_keys": [
+      "ingest_run_id",
+      "source_file",
+      "MARKET",
+      "SYMBOL",
+      "TRADINGDATE"
+    ],
+    "time_reorder_count": 0,
+    "adjacent_same_time_count": 0,
+    "positive_gap_count": 3178749,
+    "positive_gap_seconds_quantiles": {
+      "0.5": 0.5,
+      "0.9": 1.5,
+      "0.99": 13.5
+    },
+    "limitation": "Includes intraday breaks; no calendar/session filter; not a staleness distribution"
+  },
+  "limitations": [
+    "No full-payload duplicate/conflict classification performed",
+    "L1 checks do not certify all five levels or market-session validity",
+    "No cumulative/increment reconciliation, tick-size or sentinel validation performed",
+    "No per-record availability or source publishing mechanism verified"
+  ]
+}

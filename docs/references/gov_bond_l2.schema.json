@@ -1,0 +1,1316 @@
+{
+  "schema_version": "2.0",
+  "sources": [
+    {
+      "path": "国债期货 L2.docx",
+      "sha256": "ac357d807fad326270fd462ddc264cc259f3be818f5633568fd4cc9788edb20a"
+    },
+    {
+      "path": "part-0.parquet",
+      "sha256": "19e8cdaba9db4f652012a7c7be38efaffd2d580bc44ed6b3d25ef5808f5883ba"
+    }
+  ],
+  "sample": {
+    "kind": "l2_snapshots",
+    "row_count": 3178989,
+    "column_count": 66,
+    "row_group_count": 26,
+    "grain": "One supplied L2 observation per row; event keys may repeat; not an order or trade log",
+    "timezone": null,
+    "timestamp_logical_type": "Timestamp(isAdjustedToUTC=false, timeUnit=microseconds, is_from_converted_type=false, force_set_converted_type=false)",
+    "fields": [
+      {
+        "name": "TRADINGDATE",
+        "arrow_type": "date32[day]",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "TradingDate",
+        "description": "交易归属日期",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "TRADINGTIME",
+        "arrow_type": "timestamp[us]",
+        "parquet_physical_type": "INT64",
+        "nullable": true,
+        "source_field": "TradingTime",
+        "description": "交易发生时间",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "SYMBOL",
+        "arrow_type": "string",
+        "parquet_physical_type": "BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "Symbol",
+        "description": "合约代码",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "OPENPRICE",
+        "arrow_type": "decimal128(9, 3)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "OpenPrice",
+        "description": "今开盘价",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "LASTPRICE",
+        "arrow_type": "decimal128(9, 3)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "LastPrice",
+        "description": "最新成交价",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "HIGHPRICE",
+        "arrow_type": "decimal128(9, 3)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "HighPrice",
+        "description": "日内最高价",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "LOWPRICE",
+        "arrow_type": "decimal128(9, 3)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "LowPrice",
+        "description": "日内最低价",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "SETTLEPRICE",
+        "arrow_type": "decimal128(9, 3)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "SettlePrice",
+        "description": "结算价",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "PRESETTLEPRICE",
+        "arrow_type": "decimal128(9, 3)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "PreSettlePrice",
+        "description": "昨结算价",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "CLOSEPRICE",
+        "arrow_type": "decimal128(9, 3)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "ClosePrice",
+        "description": "今收盘价",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "PRECLOSEPRICE",
+        "arrow_type": "decimal128(9, 3)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "PreClosePrice",
+        "description": "昨收盘价",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "TRADEVOLUME",
+        "arrow_type": "decimal128(19, 0)",
+        "parquet_physical_type": "FIXED_LEN_BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "TradeVolume",
+        "description": "相邻观测间成交量",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "TOTALVOLUME",
+        "arrow_type": "decimal128(19, 2)",
+        "parquet_physical_type": "FIXED_LEN_BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "TotalVolume",
+        "description": "日内累计成交量",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "TRADEAMOUNT",
+        "arrow_type": "decimal128(19, 3)",
+        "parquet_physical_type": "FIXED_LEN_BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "TradeAmount",
+        "description": "相邻观测间成交金额",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "TOTALAMOUNT",
+        "arrow_type": "decimal128(19, 3)",
+        "parquet_physical_type": "FIXED_LEN_BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "TotalAmount",
+        "description": "日内累计成交金额",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "PRETOTALPOSITION",
+        "arrow_type": "decimal128(19, 2)",
+        "parquet_physical_type": "FIXED_LEN_BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "PreTotalPosition",
+        "description": "昨持仓量",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "TOTALPOSITION",
+        "arrow_type": "decimal128(19, 2)",
+        "parquet_physical_type": "FIXED_LEN_BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "TotalPosition",
+        "description": "当前持仓量",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "PREPOSITIONCHANGE",
+        "arrow_type": "decimal128(19, 2)",
+        "parquet_physical_type": "FIXED_LEN_BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "PrePositionChange",
+        "description": "当前持仓量减昨持仓量",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "PRICEUPLIMIT",
+        "arrow_type": "decimal128(9, 3)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "PriceUpLimit",
+        "description": "涨停价",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "PRICEDOWNLIMIT",
+        "arrow_type": "decimal128(9, 3)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "PriceDownLimit",
+        "description": "跌停价",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "BUYORSELL",
+        "arrow_type": "string",
+        "parquet_physical_type": "BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "BuyOrSell",
+        "description": "推导的买卖方向",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "OPENCLOSE",
+        "arrow_type": "string",
+        "parquet_physical_type": "BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "OpenClose",
+        "description": "推导的开平仓性质",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "BUYPRICE01",
+        "arrow_type": "decimal128(9, 3)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "BuyPrice01",
+        "description": "买价第1档",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "BUYPRICE02",
+        "arrow_type": "decimal128(9, 3)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "BuyPrice02",
+        "description": "买价第2档",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "BUYPRICE03",
+        "arrow_type": "decimal128(9, 3)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "BuyPrice03",
+        "description": "买价第3档",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "BUYPRICE04",
+        "arrow_type": "decimal128(9, 3)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "BuyPrice04",
+        "description": "买价第4档",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "BUYPRICE05",
+        "arrow_type": "decimal128(9, 3)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "BuyPrice05",
+        "description": "买价第5档",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "SELLPRICE01",
+        "arrow_type": "decimal128(9, 3)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "SellPrice01",
+        "description": "卖价第1档",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "SELLPRICE02",
+        "arrow_type": "decimal128(9, 3)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "SellPrice02",
+        "description": "卖价第2档",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "SELLPRICE03",
+        "arrow_type": "decimal128(9, 3)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "SellPrice03",
+        "description": "卖价第3档",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "SELLPRICE04",
+        "arrow_type": "decimal128(9, 3)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "SellPrice04",
+        "description": "卖价第4档",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "SELLPRICE05",
+        "arrow_type": "decimal128(9, 3)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "SellPrice05",
+        "description": "卖价第5档",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "BUYVOLUME01",
+        "arrow_type": "decimal128(19, 2)",
+        "parquet_physical_type": "FIXED_LEN_BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "BuyVolume01",
+        "description": "买量第1档",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "BUYVOLUME02",
+        "arrow_type": "decimal128(19, 2)",
+        "parquet_physical_type": "FIXED_LEN_BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "BuyVolume02",
+        "description": "买量第2档",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "BUYVOLUME03",
+        "arrow_type": "decimal128(19, 2)",
+        "parquet_physical_type": "FIXED_LEN_BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "BuyVolume03",
+        "description": "买量第3档",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "BUYVOLUME04",
+        "arrow_type": "decimal128(19, 2)",
+        "parquet_physical_type": "FIXED_LEN_BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "BuyVolume04",
+        "description": "买量第4档",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "BUYVOLUME05",
+        "arrow_type": "decimal128(19, 2)",
+        "parquet_physical_type": "FIXED_LEN_BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "BuyVolume05",
+        "description": "买量第5档",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "SELLVOLUME01",
+        "arrow_type": "decimal128(19, 2)",
+        "parquet_physical_type": "FIXED_LEN_BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "SellVolume01",
+        "description": "卖量第1档",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "SELLVOLUME02",
+        "arrow_type": "decimal128(19, 2)",
+        "parquet_physical_type": "FIXED_LEN_BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "SellVolume02",
+        "description": "卖量第2档",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "SELLVOLUME03",
+        "arrow_type": "decimal128(19, 2)",
+        "parquet_physical_type": "FIXED_LEN_BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "SellVolume03",
+        "description": "卖量第3档",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "SELLVOLUME04",
+        "arrow_type": "decimal128(19, 2)",
+        "parquet_physical_type": "FIXED_LEN_BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "SellVolume04",
+        "description": "卖量第4档",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "SELLVOLUME05",
+        "arrow_type": "decimal128(19, 2)",
+        "parquet_physical_type": "FIXED_LEN_BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "SellVolume05",
+        "description": "卖量第5档",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "DELTA",
+        "arrow_type": "decimal128(9, 4)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "Delta",
+        "description": "预留今虚实度",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "PREDELTA",
+        "arrow_type": "decimal128(9, 4)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "PreDelta",
+        "description": "预留昨虚实度",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "SETTLEGROUPID",
+        "arrow_type": "string",
+        "parquet_physical_type": "BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "SettleGroupID",
+        "description": "结算组代码",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "SETTLEID",
+        "arrow_type": "decimal128(9, 0)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "SettleID",
+        "description": "结算编号",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "CHANGE",
+        "arrow_type": "decimal128(9, 3)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "Change",
+        "description": "最新价减昨结算价",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "CHANGERATIO",
+        "arrow_type": "decimal128(9, 4)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "ChangeRatio",
+        "description": "涨跌幅（2017年8月起为比率）",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "CONTINUESIGN",
+        "arrow_type": "string",
+        "parquet_physical_type": "BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "ContinueSign",
+        "description": "连续合约代码",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "MARKET",
+        "arrow_type": "string",
+        "parquet_physical_type": "BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "Market",
+        "description": "市场",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "UNIX",
+        "arrow_type": "int64",
+        "parquet_physical_type": "INT64",
+        "nullable": true,
+        "source_field": "UNIX",
+        "description": "事件时间对应的 Unix 毫秒",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "POSITIONCHANGE",
+        "arrow_type": "decimal128(19, 2)",
+        "parquet_physical_type": "FIXED_LEN_BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "PositionChange",
+        "description": "相邻观测持仓差，当日首条为0",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "CONTINUESIGNNAME",
+        "arrow_type": "string",
+        "parquet_physical_type": "BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "ContinueSignName",
+        "description": "连续合约名称",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "SECURITYID",
+        "arrow_type": "string",
+        "parquet_physical_type": "BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "SecurityID",
+        "description": "证券统一内部编码",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "SHORTNAME",
+        "arrow_type": "string",
+        "parquet_physical_type": "BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "ShortName",
+        "description": "证券简称",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "AVERAGEPRICE",
+        "arrow_type": "decimal128(9, 3)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "AveragePrice",
+        "description": "成交均价，无成交时使用昨收盘价",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "ORDERRATE",
+        "arrow_type": "decimal128(9, 4)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "OrderRate",
+        "description": "五档委比",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "ORDERDIFF",
+        "arrow_type": "decimal128(19, 2)",
+        "parquet_physical_type": "FIXED_LEN_BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "OrderDiff",
+        "description": "五档买量合计减卖量合计",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "AMPLITUDE",
+        "arrow_type": "decimal128(9, 4)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "Amplitude",
+        "description": "日内高低价差除昨结算价",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "VOLRATE",
+        "arrow_type": "decimal128(9, 4)",
+        "parquet_physical_type": "INT32",
+        "nullable": true,
+        "source_field": "VolRate",
+        "description": "相对前五日分钟均量的量比",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "SELLVOL",
+        "arrow_type": "decimal128(19, 2)",
+        "parquet_physical_type": "FIXED_LEN_BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "SellVOL",
+        "description": "主动卖累计成交量",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "BUYVOL",
+        "arrow_type": "decimal128(19, 2)",
+        "parquet_physical_type": "FIXED_LEN_BYTE_ARRAY",
+        "nullable": true,
+        "source_field": "BuyVOL",
+        "description": "主动买累计成交量",
+        "semantics_evidence": "Word definition with physical column verified in part-0.parquet"
+      },
+      {
+        "name": "product",
+        "arrow_type": "string",
+        "parquet_physical_type": "BYTE_ARRAY",
+        "nullable": true,
+        "source_field": null,
+        "description": "品种标签；核对 SYMBOL 前缀，不用 source_file 文件名推断合约",
+        "semantics_evidence": "Observed ingestion metadata; producer contract not supplied"
+      },
+      {
+        "name": "source_file",
+        "arrow_type": "string",
+        "parquet_physical_type": "BYTE_ARRAY",
+        "nullable": true,
+        "source_field": null,
+        "description": "上游源文件标识；只用于血缘，不表示合约或交易所时间",
+        "semantics_evidence": "Observed ingestion metadata; producer contract not supplied"
+      },
+      {
+        "name": "source_row",
+        "arrow_type": "int64",
+        "parquet_physical_type": "INT64",
+        "nullable": true,
+        "source_field": null,
+        "description": "上游源行号；不是交易所序号，起算方式待确认",
+        "semantics_evidence": "Observed ingestion metadata; producer contract not supplied"
+      },
+      {
+        "name": "ingest_run_id",
+        "arrow_type": "string",
+        "parquet_physical_type": "BYTE_ARRAY",
+        "nullable": true,
+        "source_field": null,
+        "description": "上游导入批次标识；不是逐条 ingested_time 或 available_time",
+        "semantics_evidence": "Observed ingestion metadata; producer contract not supplied"
+      }
+    ]
+  },
+  "raw_l2": {
+    "kind": "documented_source_dictionary",
+    "field_count": 62,
+    "physical_schema_verified": true,
+    "fields": [
+      {
+        "ordinal": 1,
+        "name": "TradingDate",
+        "document_spelling": "TradingDate",
+        "description": "交易归属日期",
+        "document_type": "int",
+        "document_note": "yyyymmdd，例如 ：20141120",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "TRADINGDATE"
+      },
+      {
+        "ordinal": 2,
+        "name": "TradingTime",
+        "document_spelling": "TradingTime",
+        "description": "交易发生时间",
+        "document_type": "datetime",
+        "document_note": "yyyy 盯1m-dd hh:mm:ss.mmm 由交易当天日期和数据主成时间｛交易所直接下炭的） 合成。例如 ：2014-09-01 08:57:55.000",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "TRADINGTIME"
+      },
+      {
+        "ordinal": 3,
+        "name": "Symbol",
+        "document_spelling": "Symbol",
+        "description": "合约代码",
+        "document_type": "varchar(6)",
+        "document_note": "以申金所公布国债期货合约代码为准",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "SYMBOL"
+      },
+      {
+        "ordinal": 4,
+        "name": "OpenPrice",
+        "document_spelling": "OpenPrice",
+        "description": "今开盘价",
+        "document_type": "decimal(9, 3)",
+        "document_note": "该合约在本交易日的开盘价",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "OPENPRICE"
+      },
+      {
+        "ordinal": 5,
+        "name": "LastPrice",
+        "document_spelling": "LastPrice",
+        "description": "最新成交价",
+        "document_type": "decimal(9,3)",
+        "document_note": "",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "LASTPRICE"
+      },
+      {
+        "ordinal": 6,
+        "name": "HighPrice",
+        "document_spelling": "HighPrice",
+        "description": "日内最高价",
+        "document_type": "decimal(9, 3)",
+        "document_note": "开盘至当前时刻所出现的最高成交价",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "HIGHPRICE"
+      },
+      {
+        "ordinal": 7,
+        "name": "LowPrice",
+        "document_spelling": "LowPrice",
+        "description": "日内最低价",
+        "document_type": "decimal阳，3)",
+        "document_note": "开盘至当前时刻所出现的最低成交价",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "LOWPRICE"
+      },
+      {
+        "ordinal": 8,
+        "name": "SettlePrice",
+        "document_spelling": "SettlePrice",
+        "description": "结算价",
+        "document_type": "decimal(9, 3)",
+        "document_note": "该合约在本交易目的结算价，采用本交易目最后一小 时成交价格按照成交量的拥权平均价",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "SETTLEPRICE"
+      },
+      {
+        "ordinal": 9,
+        "name": "PreSettlePrice",
+        "document_spelling": "PreSettlePrice",
+        "description": "昨结算价",
+        "document_type": "decimal(9, 3)",
+        "document_note": "该合约在上一交易目的结算价，采用上一交易目最后 一小时成交价格按照成交量的拥权平均价",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "PRESETTLEPRICE"
+      },
+      {
+        "ordinal": 10,
+        "name": "ClosePrice",
+        "document_spelling": "ClosePrice",
+        "description": "今收盘价",
+        "document_type": "decimal(9, 3)",
+        "document_note": "今日收盘价",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "CLOSEPRICE"
+      },
+      {
+        "ordinal": 11,
+        "name": "PreClosePrice",
+        "document_spelling": "PreClosePrice",
+        "description": "昨收盘价",
+        "document_type": "decimal(9, 3)",
+        "document_note": "读合约在上一交易日的收盘价",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "PRECLOSEPRICE"
+      },
+      {
+        "ordinal": 12,
+        "name": "TradeVolume",
+        "document_spelling": "TradeVolume",
+        "description": "相邻观测间成交量",
+        "document_type": "decimal(19,0)",
+        "document_note": "上一条记录至本条记录｛即相邻两个观测时点）期间所 发生的成交量．",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "TRADEVOLUME"
+      },
+      {
+        "ordinal": 13,
+        "name": "TotalVolume",
+        "document_spelling": "TotalVolume",
+        "description": "日内累计成交量",
+        "document_type": "decimal(19,2)",
+        "document_note": "开盘至当前时刻读合约的累计成交量",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "TOTALVOLUME"
+      },
+      {
+        "ordinal": 14,
+        "name": "TradeAmount",
+        "document_spelling": "TradeAmount",
+        "description": "相邻观测间成交金额",
+        "document_type": "decimal(19, 3)",
+        "document_note": "上 条记录至条记录｛即相邻两个观测时点）期间所 发生的成交额",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "TRADEAMOUNT"
+      },
+      {
+        "ordinal": 15,
+        "name": "TotalAmount",
+        "document_spelling": "TotalAm。unt",
+        "description": "日内累计成交金额",
+        "document_type": "decimal(19, 3)",
+        "document_note": "开盘至当前时刻读舍约的累计成交金额",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "TOTALAMOUNT"
+      },
+      {
+        "ordinal": 16,
+        "name": "PreTotalPosition",
+        "document_spelling": "PreTotalPosition",
+        "description": "昨持仓量",
+        "document_type": "decimal(19, 2)",
+        "document_note": "上一交眉日收盘时刻该合约的未平合量",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "PRETOTALPOSITION"
+      },
+      {
+        "ordinal": 17,
+        "name": "TotalPosition",
+        "document_spelling": "TotalPosition",
+        "description": "当前持仓量",
+        "document_type": "decimal(19, 2)",
+        "document_note": "当前现测时点的持仓量",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "TOTALPOSITION"
+      },
+      {
+        "ordinal": 18,
+        "name": "PrePositionChange",
+        "document_spelling": "PrePositionChange",
+        "description": "当前持仓量减昨持仓量",
+        "document_type": "decimal(19, 2)",
+        "document_note": "持仓量 昨持仓量",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "PREPOSITIONCHANGE"
+      },
+      {
+        "ordinal": 19,
+        "name": "PriceUpLimit",
+        "document_spelling": "PriceUpLimit",
+        "description": "涨停价",
+        "document_type": "decimal(9, 3)",
+        "document_note": "",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "PRICEUPLIMIT"
+      },
+      {
+        "ordinal": 20,
+        "name": "PriceDownLimit",
+        "document_spelling": "PriceDownlimit",
+        "description": "跌停价",
+        "document_type": "decimal侣，3)",
+        "document_note": "",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "PRICEDOWNLIMIT"
+      },
+      {
+        "ordinal": 21,
+        "name": "BuyOrSell",
+        "document_spelling": "BuyOrSell",
+        "description": "推导的买卖方向",
+        "document_type": "varchar(1)",
+        "document_note": "0：无法判断 ；1：主动买入 ；2 主动卖出",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "BUYORSELL"
+      },
+      {
+        "ordinal": 22,
+        "name": "OpenClose",
+        "document_spelling": "OpenCl。se",
+        "description": "推导的开平仓性质",
+        "document_type": "Nva「char(9)",
+        "document_note": "O  其他；1  双开仓；2  双平仓；3  多头换手；4  空头换手；5  多头开仓；6  空头开仓；7  多头平仓；",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "OPENCLOSE"
+      },
+      {
+        "ordinal": 23,
+        "name": "BuyPrice01",
+        "document_spelling": "BuyPrice01",
+        "description": "买价第1档",
+        "document_type": "decimal(9, 3)",
+        "document_note": "第 1档蚕托买λ价",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "BUYPRICE01"
+      },
+      {
+        "ordinal": 24,
+        "name": "BuyPrice02",
+        "document_spelling": "BuyPrice02",
+        "description": "买价第2档",
+        "document_type": "decimal阳，3)",
+        "document_note": "第 2 档蚕括实入价，低于第 1档蚕托买λ价",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "BUYPRICE02"
+      },
+      {
+        "ordinal": 25,
+        "name": "BuyPrice03",
+        "document_spelling": "BuyPrice03",
+        "description": "买价第3档",
+        "document_type": "decimal(9, 3)",
+        "document_note": "第 3档委托买入价，低于第 2 挡蚕托买入价",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "BUYPRICE03"
+      },
+      {
+        "ordinal": 26,
+        "name": "BuyPrice04",
+        "document_spelling": "BuyPrice04",
+        "description": "买价第4档",
+        "document_type": "decimal(9, 3)",
+        "document_note": "第 4 档委托买入价，低于第 3档委托买入价",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "BUYPRICE04"
+      },
+      {
+        "ordinal": 27,
+        "name": "BuyPrice05",
+        "document_spelling": "BuyPrice05",
+        "description": "买价第5档",
+        "document_type": "decimal阳，3)",
+        "document_note": "第 5档蚕括实入价，低于第 4 档蚕托买λ价",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "BUYPRICE05"
+      },
+      {
+        "ordinal": 28,
+        "name": "SellPrice01",
+        "document_spelling": "Se11Price01",
+        "description": "卖价第1档",
+        "document_type": "decimal(9, 3)",
+        "document_note": "第 1档委托卖出价",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "SELLPRICE01"
+      },
+      {
+        "ordinal": 29,
+        "name": "SellPrice02",
+        "document_spelling": "Se11Price02",
+        "description": "卖价第2档",
+        "document_type": "decimal(9, 3)",
+        "document_note": "第 2 档委托卖出价，高于第1档委托卖出价",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "SELLPRICE02"
+      },
+      {
+        "ordinal": 30,
+        "name": "SellPrice03",
+        "document_spelling": "Se11Price03",
+        "description": "卖价第3档",
+        "document_type": "decimal仰，3)",
+        "document_note": "第 3档蚕托卖出价，高于第2 档蚕托卖出价",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "SELLPRICE03"
+      },
+      {
+        "ordinal": 31,
+        "name": "SellPrice04",
+        "document_spelling": "Se11Price04",
+        "description": "卖价第4档",
+        "document_type": "decimal(9, 3)",
+        "document_note": "第 4 档蚕托卖出价，高于第3档蚕拓卖出价",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "SELLPRICE04"
+      },
+      {
+        "ordinal": 32,
+        "name": "SellPrice05",
+        "document_spelling": "Se11Price05",
+        "description": "卖价第5档",
+        "document_type": "decimal(9, 3)",
+        "document_note": "第 5挡委托卖出价』 富于第 4 档委托卖出价",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "SELLPRICE05"
+      },
+      {
+        "ordinal": 33,
+        "name": "BuyVolume01",
+        "document_spelling": "BuyVolume01",
+        "description": "买量第1档",
+        "document_type": "decimal(19,  2)",
+        "document_note": "以实有←蚕托买入的数量",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "BUYVOLUME01"
+      },
+      {
+        "ordinal": 34,
+        "name": "BuyVolume02",
+        "document_spelling": "BuyVolume02",
+        "description": "买量第2档",
+        "document_type": "decimal(19, 2)",
+        "document_note": "以买价二蚕托买人的数量",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "BUYVOLUME02"
+      },
+      {
+        "ordinal": 35,
+        "name": "BuyVolume03",
+        "document_spelling": "BuyVolume03",
+        "description": "买量第3档",
+        "document_type": "decimal(19, 2)",
+        "document_note": "以买价 委托买入的数量",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "BUYVOLUME03"
+      },
+      {
+        "ordinal": 36,
+        "name": "BuyVolume04",
+        "document_spelling": "BuyVolume04",
+        "description": "买量第4档",
+        "document_type": "decimal(19, 2)",
+        "document_note": "以买价四蚕托买入的数量",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "BUYVOLUME04"
+      },
+      {
+        "ordinal": 37,
+        "name": "BuyVolume05",
+        "document_spelling": "BuyV。lume05",
+        "description": "买量第5档",
+        "document_type": "decimal(19, 2)",
+        "document_note": "以实价五委托买入的鼓量",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "BUYVOLUME05"
+      },
+      {
+        "ordinal": 38,
+        "name": "SellVolume01",
+        "document_spelling": "Se11Volume01",
+        "description": "卖量第1档",
+        "document_type": "decimal(19, 2)",
+        "document_note": "以翻←蚕拓卖出的数量",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "SELLVOLUME01"
+      },
+      {
+        "ordinal": 39,
+        "name": "SellVolume02",
+        "document_spelling": "Se11Volume02",
+        "description": "卖量第2档",
+        "document_type": "decimal(19, 2)",
+        "document_note": "以卖价二蚕托卖出的数量",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "SELLVOLUME02"
+      },
+      {
+        "ordinal": 40,
+        "name": "SellVolume03",
+        "document_spelling": "SellV1。lume03",
+        "description": "卖量第3档",
+        "document_type": "decimal(19, 2)",
+        "document_note": "以卖价 委托卖出的鼓量",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "SELLVOLUME03"
+      },
+      {
+        "ordinal": 41,
+        "name": "SellVolume04",
+        "document_spelling": "Se11Volume04",
+        "description": "卖量第4档",
+        "document_type": "decimal(19,  2)",
+        "document_note": "以卖价四蚕拓支出的数量",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "SELLVOLUME04"
+      },
+      {
+        "ordinal": 42,
+        "name": "SellVolume05",
+        "document_spelling": "Se11Volume05",
+        "description": "卖量第5档",
+        "document_type": "decimal(19, 2)",
+        "document_note": "以卖价五蚕托卖出的数量",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "SELLVOLUME05"
+      },
+      {
+        "ordinal": 43,
+        "name": "Delta",
+        "document_spelling": "Delta",
+        "description": "预留今虚实度",
+        "document_type": "decimal仰，4)",
+        "document_note": "预留字段。该合约在本主眉目的 Delta Delta  期权价格变化／期货价格变化",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "DELTA"
+      },
+      {
+        "ordinal": 44,
+        "name": "PreDelta",
+        "document_spelling": "PreDelta",
+        "description": "预留昨虚实度",
+        "document_type": "decimal仰，4)",
+        "document_note": "预留字段。该合约在上  交易曰的 Delta Delta  期权价格变化／期货价格变化",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "PREDELTA"
+      },
+      {
+        "ordinal": 45,
+        "name": "SettleGroupID",
+        "document_spelling": "SettleGrouplD",
+        "description": "结算组代码",
+        "document_type": "varchar(9)",
+        "document_note": "国债期货结算组",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "SETTLEGROUPID"
+      },
+      {
+        "ordinal": 46,
+        "name": "SettleID",
+        "document_spelling": "Se忧· lelD",
+        "description": "结算编号",
+        "document_type": "decimal(9, O)",
+        "document_note": "",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "SETTLEID"
+      },
+      {
+        "ordinal": 47,
+        "name": "Change",
+        "document_spelling": "Change",
+        "description": "最新价减昨结算价",
+        "document_type": "decimal阳，3)",
+        "document_note": "最新成交价 昨结算价",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "CHANGE"
+      },
+      {
+        "ordinal": 48,
+        "name": "ChangeRatio",
+        "document_spelling": "ChangeRatio",
+        "description": "涨跌幅（2017年8月起为比率）",
+        "document_type": "decimal(9, 4)",
+        "document_note": "（最新成交价 昨结算价）／It'!=结算价叫00",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "CHANGERATIO"
+      },
+      {
+        "ordinal": 49,
+        "name": "ContinueSign",
+        "document_spelling": "c。ntinueSign",
+        "description": "连续合约代码",
+        "document_type": "varchar(6)",
+        "document_note": "五每期国债交易代西TF ，十每期国债交易代码 T， 续合约包括 L1 ,  L2, L3，连续合约代码为 “交易代",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "CONTINUESIGN"
+      },
+      {
+        "ordinal": 50,
+        "name": "Market",
+        "document_spelling": "Market",
+        "description": "市场",
+        "document_type": "varchar(5)",
+        "document_note": "默认为 CFFEX ，田中国金融期货交易所",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "MARKET"
+      },
+      {
+        "ordinal": 51,
+        "name": "UNIX",
+        "document_spelling": "UNIX",
+        "description": "事件时间对应的 Unix 毫秒",
+        "document_type": "decimal(19,0)",
+        "document_note": "对应 T「adingTime 与 1970-01-01 00:00:00.000 的 毫秒差值再j届去 伊3600",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "UNIX"
+      },
+      {
+        "ordinal": 52,
+        "name": "PositionChange",
+        "document_spelling": "PositionChange",
+        "description": "相邻观测持仓差，当日首条为0",
+        "document_type": "decimal(19,  2)",
+        "document_note": "当前持仓量 ［TotalPosition(t)J  上一分笔的持仓量[TotalPosition(t-1）］ ；当日首条分笔仓差为 0",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "POSITIONCHANGE"
+      },
+      {
+        "ordinal": 53,
+        "name": "ContinueSignName",
+        "document_spelling": "ContinueSignNam e",
+        "description": "连续合约名称",
+        "document_type": "nvarchar(6)",
+        "document_note": "代码 L1,L2,L3 分别对应当季连续，下季连续，隔季连 续",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "CONTINUESIGNNAME"
+      },
+      {
+        "ordinal": 54,
+        "name": "SecurityID",
+        "document_spelling": "SecuritylD",
+        "description": "证券统一内部编码",
+        "document_type": "decimal(19，）",
+        "document_note": "统一标准内部编码，谊券唯一标识",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "SECURITYID"
+      },
+      {
+        "ordinal": 55,
+        "name": "ShortName",
+        "document_spelling": "ShortName",
+        "description": "证券简称",
+        "document_type": "nvarchar(20)",
+        "document_note": "",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "SHORTNAME"
+      },
+      {
+        "ordinal": 56,
+        "name": "AveragePrice",
+        "document_spelling": "Ave「agePrice",
+        "description": "成交均价，无成交时使用昨收盘价",
+        "document_type": "decimal阳，3)",
+        "document_note": "成交总额／成交总量／合约乘数 ，没布成交则显示昨收 盘价",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "AVERAGEPRICE"
+      },
+      {
+        "ordinal": 57,
+        "name": "OrderRate",
+        "document_spelling": "OrderRate",
+        "description": "五档委比",
+        "document_type": "decimal(9,4)",
+        "document_note": "直挡的蚕拓量之租。委比的取值自 100%到＋100%，如＋100%表示全部",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "ORDERRATE"
+      },
+      {
+        "ordinal": 58,
+        "name": "OrderDiff",
+        "document_spelling": "OrderDi忏",
+        "description": "五档买量合计减卖量合计",
+        "document_type": "decimal(19,2)",
+        "document_note": "蚕买总量 蚕卖总量；蚕买总量是当前蚕买五档蚕拓量 的租，蚕卖总量是当前委卖置挡的蚕拓量之租。",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "ORDERDIFF"
+      },
+      {
+        "ordinal": 59,
+        "name": "Amplitude",
+        "document_spelling": "AmpI忧ude",
+        "description": "日内高低价差除昨结算价",
+        "document_type": "decimal(9,4)",
+        "document_note": "［最高价（HighP「ice） 最低价（LowPrice）］ ／昨结算价(PreSe忧lePrice)",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "AMPLITUDE"
+      },
+      {
+        "ordinal": 60,
+        "name": "VolRate",
+        "document_spelling": "VolRate",
+        "description": "相对前五日分钟均量的量比",
+        "document_type": "decimal(9,4)",
+        "document_note": "天平均每分钟成交量。",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "VOLRATE"
+      },
+      {
+        "ordinal": 61,
+        "name": "SellVOL",
+        "document_spelling": "SellVOL",
+        "description": "主动卖累计成交量",
+        "document_type": "decimal(19,2)",
+        "document_note": "主动性卖盘的累计成交量。主动性卖是指卖家以买家的买入价卖出成交。",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "SELLVOL"
+      },
+      {
+        "ordinal": 62,
+        "name": "BuyVOL",
+        "document_spelling": "BuyVOL",
+        "description": "主动买累计成交量",
+        "document_type": "decimal(19,2)",
+        "document_note": "主动性实盘的累计成交量。主动性买是指买家以卖家的卖出价而买入成交",
+        "sample_column_present": true,
+        "status": "physical column verified in part-0.parquet; meaning follows Word with stated limitations",
+        "sample_column": "BUYVOL"
+      }
+    ],
+    "verification_scope": "All 62 canonical fields matched case-insensitively to sample columns; this verifies physical schema, not every semantic formula or all source files"
+  },
+  "limitations": [
+    "No per-record available_time, ingested_time or exchange source_sequence; source_row is provenance only",
+    "TRADINGTIME is timezone-naive; full-file UNIX offset check supports Asia/Shanghai interpretation but does not prove availability",
+    "Snapshot feed does not identify true individual orders, executions or cancellations",
+    "Update publication mechanism, calendar, tick sizes, multipliers, sentinel policy and downstream point-in-time use require explicit configuration",
+    "Word contains spelling/OCR errors; retain original document_spelling and document_type separately from verified sample schema",
+    "Source filenames can disagree with SYMBOL/product; retain both and use record fields for contract identity"
+  ]
+}

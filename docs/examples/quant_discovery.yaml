@@ -1,4 +1,8 @@
-# Example configuration / desired contract. Adapt paths, dates and semantics to actual dataset.
+# Example configuration / desired contract; no adapter implementation exists yet.
+# Targets raw L2 fields documented in references/gov_bond_l2.schema.md.
+# Physical names verified against references/part-0.parquet (3,178,989 rows, 66 columns).
+# Calendar provider is Marketdata LAN API; calendar ID and intraday sessions need confirmation.
+# This is government bond FUTURES L2 data, not cash-bond quotes.
 project: quantsage_empirical_discovery
 seed: 42
 storage:
@@ -14,28 +18,62 @@ resources:
   max_cube_cells_per_hypothesis: 24
 input:
   format: parquet
-  adapter: l1_snapshots
+  schema_ref: ./docs/references/gov_bond_l2.schema.json
+  adapter: l2_snapshots # desired adapter; implementation does not exist yet
   exchange_timezone: Asia/Shanghai
-  instrument_column: instrument_id
-  timestamp_column: local_time
+  instrument_column: SYMBOL
+  timestamp_column: TRADINGTIME
   available_timestamp_column: null # flag unknown; do not silently assume zero latency
   timestamp_kind: exchange_event_time
   columns:
-    bid_price_1: bid1
-    ask_price_1: ask1
-    bid_size_1: bidvol1
-    ask_size_1: askvol1
-    last_price: last_price
-    volume: volume
-  volume_semantics: unknown # specify cumulative_session/incremental if known
+    trade_date: TRADINGDATE
+    exchange: MARKET
+    bid_price_1: BUYPRICE01
+    bid_price_2: BUYPRICE02
+    bid_price_3: BUYPRICE03
+    bid_price_4: BUYPRICE04
+    bid_price_5: BUYPRICE05
+    ask_price_1: SELLPRICE01
+    ask_price_2: SELLPRICE02
+    ask_price_3: SELLPRICE03
+    ask_price_4: SELLPRICE04
+    ask_price_5: SELLPRICE05
+    bid_size_1: BUYVOLUME01
+    bid_size_2: BUYVOLUME02
+    bid_size_3: BUYVOLUME03
+    bid_size_4: BUYVOLUME04
+    bid_size_5: BUYVOLUME05
+    ask_size_1: SELLVOLUME01
+    ask_size_2: SELLVOLUME02
+    ask_size_3: SELLVOLUME03
+    ask_size_4: SELLVOLUME04
+    ask_size_5: SELLVOLUME05
+    last_price: LASTPRICE
+    volume: TOTALVOLUME
+    turnover: TOTALAMOUNT
+    open_interest: TOTALPOSITION
+    volume_increment: TRADEVOLUME
+    turnover_increment: TRADEAMOUNT
+    source_event_unix_ms: UNIX
+  volume_semantics: cumulative_day # TOTALVOLUME; TRADEVOLUME is already incremental
   allow_research_only_without_availability: true
 market:
-  calendar_id: cn_gov_bond_futures_example # must be configured/verified by user
+  asset_class: government_bond_futures
+  calendar_id: null # discover real IDs and confirm the CFFEX futures calendar; never default to CN_STOCK
+  calendar_source:
+    provider: marketdata_api
+    base_url: https://192.168.1.102/marketdata-api/
+    ca_file: null # configure the trusted server-ca.crt path on this client
+    table: marketdata.reference.calendars
+    max_rows: 10000 # reject truncation or fetch complete bounded pages
+    freeze_snapshot: true
+  session_rules_ref: null # verified API-derived or explicit versioned intraday rules; dates alone are insufficient
   max_quote_staleness: 2s
   prevent_cross_session_fill: true
 splits:
   method: chronological
-  # Replace with real historical bounds before executing on real data.
+  # Placeholder bounds do not cover the January 2026 sample.
+  # Replace with a validated SplitManifest before executing; do not invent a holdout from this file.
   train: {start: '2024-01-01', end: '2024-06-30'}
   development: {start: '2024-07-01', end: '2024-09-30'}
   final_holdout: {start: '2024-10-01', end: '2024-12-31'}

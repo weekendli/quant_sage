@@ -4,6 +4,10 @@
 
 所有独立模块必须对**时间、字段、数据集拆分、产物引用和统计独立性**使用相同术语。本文件是实现的共同约束；模块文档冲突时，应先澄清，不得偷偷改变契约。
 
+## 原始数据字段与标准化字段
+
+以 [L2 Schema](references/gov_bond_l2.schema.md) 及其 [JSON](references/gov_bond_l2.schema.json) 为字段依据。本文件的 snake_case 名称属于标准化层，不能假定源文件已有同名列。Word 描述 62 个业务字段；当前 `part-0.parquet` 为 3,178,989 行、66 列的逐条 L2 快照，包含全部五档盘口和 4 个导入元数据字段。业务列实际为全大写；类型、精度及 nullable 以 Parquet 为准。`TRADINGTIME` 无时区，`UNIX` 用于事件时间校验；`source_row` 是来源行号，`ingest_run_id` 是上游导入批次，均不能当作交易所序号或逐条 `available_time`。样本核验脚本与结果见 [profile](references/part-0.profile.json)。
+
 ## A. 时间契约
 
 | 字段 | 含义 | 用途 |
@@ -16,7 +20,7 @@
 | `trade_date` | 交易所语义交易日 | Partition、session、split |
 | `session_id` | 连续交易会话标识 | 禁止不合理跨会话窗口 |
 
-所有时间存储为有时区语义的 timestamp（推荐 Arrow UTC 存储、展示时明确交易所时区）。**输入没有 `available_time` 时，不可无证据地断言它等于 `event_time`**；按配置选 `research_only` 或使用明确延迟假设并标记风险。
+所有标准化时间存储为有时区语义的 timestamp（推荐 Arrow UTC 存储、展示时明确交易所时区）。**输入没有 `available_time` 时，不可无证据地断言它等于 `event_time`**；按配置选 `research_only` 或使用明确延迟假设并标记风险。
 
 跨源 join：要求双方在 decision_time 之前可用，使用 as-of、staleness 与缺失标志；不可用后见之明配对。
 
@@ -68,7 +72,7 @@ purge_and_embargo: enabled
 
 ## E. Sample Units / Statistical Contracts
 
-- 原始观察单位 `quote update`；事件研究单位 `event episode`；更稳定的独立性评价单位通常是 `trading day / independent time block`。
+- 本次 L2 输入的原始观察单位 `quote snapshot observation`（是否仅在变化时发布仍待确认）；事件研究单位 `event episode`；更稳定的独立性评价单位通常是 `trading day / independent time block`。
 - 所有指标注明分母；bootstrap/block design 要以依赖结构选择，而不是按行情逐行重抽样。
 - 任意模型输出不应只保存 point estimate；至少在实验报告中提供估计的不确定性、有效样本数、基准差异和搜索次数。
 - 测试之前先定义要测量的 outcome 和 effect；如果执行后改动，创建新版本，不隐式覆盖。
