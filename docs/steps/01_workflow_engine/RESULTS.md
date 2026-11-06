@@ -86,3 +86,29 @@ Two independent GPT-6 Luna/xhigh reviews checked Standards and Spec. Their findi
 ### Limits
 
 This increment supplies local file-backed storage and ownership, not a distributed executor or background RPC service. Queue requests are serialized without a new timeout protocol. Physical schema introspection and arbitrary manual database repair are not provided. Existing frozen source/config/code evidence is preserved; old database files must not be opened as if this were a format migration. Subsequent CLI executions use new workspaces and unchanged public argument forms.
+
+## 01-B Study / DataSource 管理（2026-11-06）
+
+Acceptance: **COMPLETE for 01-B**. GPT-6 Luna/xhigh implementation and test agents delivered strict schemas, ResearchRepository and ResearchService. Root independently reviewed and verified the changes. Registry schema v3 adds data_sources/studies/study_revisions through the existing transactional version/checksum mechanism.
+
+Public Python API: `ResearchService(registry).register_source(document)`, `get_source(ref)`, `create_study(document)`, `update_study(study_id, changes, expected_revision=..., actor=..., reason=...)`, `get_study(study_id, revision=None)`, `study_history(study_id)` and `ensure_active_for_execution(study_id)`. Return values are independent JSON-serializable documents. Unknown fields, mutable-version replacement and stale revisions are rejected with structured research error codes.
+
+The generic source contract uses hashed local `{uri, content_hash}` refs for manifests, schema, calendar, sessions, access/split and optional metadata/gap/quality documents. Every data artifact is hashed in bounded streaming chunks. Metadata validates finite positive decimal ticks, canonical longest product prefixes, exclusive date ranges, overlap and actual trade-date coverage. Unknown source availability remains research_only. Study limits use `allowed_steps`, `allowed_scope` (array), and `budget` (including max_work_units/max_partitions/max_concurrent_jobs); permission bounds and observed coverage remain separate so internal source gaps can be queried.
+
+Metadata input format is supplied at [configs/templates](../../../configs/templates/README.md). The template contains unfilled placeholders, not real metadata. User metadata path remains pending. This increment uses serialized generic fixtures; no frozen onboarding data or historical evidence was rewritten. Source documents gain immutable versions while reusing unchanged data artifacts.
+
+Executed verification:
+
+```bash
+python -m pytest -q tests/test_research_management.py --tb=short
+# 30 passed in 1.30s
+python -m pytest -q --tb=short
+# 166 passed in 16.04s
+python -m ruff check quantsage_discovery scripts tests
+# All checks passed!
+python -m examples.research_management --help
+```
+
+A real subprocess invocation of `python -m examples.research_management --workspace ... --source ... --study ...` used JSON documents from `tests/research_fixtures.py` in a temporary directory. It registered the source, created Study revision 1 and preserved research_only; assertions passed. Tests cover persistence/reopen, immutable source versions, metadata-only revisions without data rewrites, malformed/tampered refs including large files, schema/time/calendar/session/access/split checks, T-only metadata rejection for TF/TS/TL, tick/date failures, known internal gaps, concurrent revision conflict/history and paused/closed execution guards. Next increment: 01-C; FeatureSet freezing and execution are not claimed here.
+
+Read-only test-agent review identified missing research-use permission checks and weak referenced schema/split payload type checks. Root corrected these and added four regressions before the final 166-test run.

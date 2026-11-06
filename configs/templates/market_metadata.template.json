@@ -1,0 +1,39 @@
+{
+  "metadata_id": "cffex_user_metadata",
+  "version": 1,
+  "provided_by": {
+    "kind": "human",
+    "id": "<填写提供者标识>"
+  },
+  "source": "<填写规则来源或说明>",
+  "tick_rules": [
+    {
+      "product": "T",
+      "valid_from": "<YYYY-MM-DD>",
+      "valid_to": null,
+      "tick_size": "<正十进制数>",
+      "unit": "quoted_price_unit"
+    },
+    {
+      "product": "TF",
+      "valid_from": "<YYYY-MM-DD>",
+      "valid_to": null,
+      "tick_size": "<正十进制数>",
+      "unit": "quoted_price_unit"
+    },
+    {
+      "product": "TS",
+      "valid_from": "<YYYY-MM-DD>",
+      "valid_to": null,
+      "tick_size": "<正十进制数>",
+      "unit": "quoted_price_unit"
+    },
+    {
+      "product": "TL",
+      "valid_from": "<YYYY-MM-DD>",
+      "valid_to": null,
+      "tick_size": "<正十进制数>",
+      "unit": "quoted_price_unit"
+    }
+  ]
+}

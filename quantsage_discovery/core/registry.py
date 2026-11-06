@@ -100,8 +100,46 @@ _SCHEMA_V1_CHECKSUM = hashlib.sha256(_SCHEMA_V1_DDL.encode("utf-8")).hexdigest()
 _SCHEMA_V2_CHECKSUM = hashlib.sha256(
     f"{_SCHEMA_V1_CHECKSUM}\n{_MIGRATION_V2_SQL}".encode()
 ).hexdigest()
-_SCHEMA_CHECKSUMS = {1: _SCHEMA_V1_CHECKSUM, 2: _SCHEMA_V2_CHECKSUM}
-_CURRENT_SCHEMA_VERSION = 2
+_MIGRATION_V3_SQL = """
+CREATE TABLE data_sources (
+    source_id VARCHAR NOT NULL,
+    version INTEGER NOT NULL,
+    content_hash VARCHAR NOT NULL,
+    manifest_uri VARCHAR NOT NULL,
+    manifest_hash VARCHAR NOT NULL,
+    document_json VARCHAR NOT NULL,
+    created_at VARCHAR NOT NULL,
+    created_by_json VARCHAR NOT NULL,
+    PRIMARY KEY (source_id, version)
+);
+CREATE TABLE studies (
+    study_id VARCHAR PRIMARY KEY,
+    current_revision INTEGER NOT NULL,
+    status VARCHAR NOT NULL,
+    created_at VARCHAR NOT NULL,
+    updated_at VARCHAR NOT NULL
+);
+CREATE TABLE study_revisions (
+    study_id VARCHAR NOT NULL,
+    revision INTEGER NOT NULL,
+    document_json VARCHAR NOT NULL,
+    actor_json VARCHAR NOT NULL,
+    reason VARCHAR NOT NULL,
+    created_at VARCHAR NOT NULL,
+    PRIMARY KEY (study_id, revision)
+);
+CREATE INDEX data_sources_hash_idx ON data_sources(source_id, content_hash);
+CREATE INDEX studies_status_idx ON studies(status, updated_at);
+""".strip()
+_SCHEMA_V3_CHECKSUM = hashlib.sha256(
+    f"{_SCHEMA_V2_CHECKSUM}\n{_MIGRATION_V3_SQL}".encode()
+).hexdigest()
+_SCHEMA_CHECKSUMS = {
+    1: _SCHEMA_V1_CHECKSUM,
+    2: _SCHEMA_V2_CHECKSUM,
+    3: _SCHEMA_V3_CHECKSUM,
+}
+_CURRENT_SCHEMA_VERSION = 3
 _T = TypeVar("_T")
 
 
@@ -238,6 +276,7 @@ class _DatabaseOwner:
                     connection.execute(statement)
             self._record_schema_version(connection, 1)
             self._apply_migration_v2(connection)
+            self._apply_migration_v3(connection)
             return
 
         rows = connection.execute(
@@ -262,6 +301,9 @@ class _DatabaseOwner:
                 )
         if current == 1:
             self._apply_migration_v2(connection)
+            current = 2
+        if current == 2:
+            self._apply_migration_v3(connection)
 
     @staticmethod
     def _record_schema_version(connection: duckdb.DuckDBPyConnection, version: int) -> None:
@@ -274,6 +316,12 @@ class _DatabaseOwner:
     def _apply_migration_v2(self, connection: duckdb.DuckDBPyConnection) -> None:
         connection.execute(_MIGRATION_V2_SQL)
         self._record_schema_version(connection, 2)
+
+    def _apply_migration_v3(self, connection: duckdb.DuckDBPyConnection) -> None:
+        for statement in _MIGRATION_V3_SQL.split(";"):
+            if statement.strip():
+                connection.execute(statement)
+        self._record_schema_version(connection, 3)
 
     def _shutdown(self) -> None:
         if self.pid != os.getpid():

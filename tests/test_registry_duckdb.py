@@ -72,7 +72,7 @@ def test_new_registry_reopens_and_same_process_handles_share_owner(tmp_path):
         ).fetchall()
     finally:
         connection.close()
-    assert [version for version, _, _ in migrations] == [1, 2]
+    assert [version for version, _, _ in migrations] == list(range(1, Registry.schema_version + 1))
     assert all(version == duckdb.__version__ for _, _, version in migrations)
 
 
@@ -109,7 +109,7 @@ def test_supported_v1_duckdb_schema_upgrades_to_current_version(tmp_path):
     finally:
         connection.close()
     assert "execution_json" in columns
-    assert versions == [(1,), (2,)]
+    assert versions == [(1,), (2,), (3,)]
 
 
 def test_registry_rejects_future_schema_and_checksum_tampering(tmp_path):
@@ -117,8 +117,8 @@ def test_registry_rejects_future_schema_and_checksum_tampering(tmp_path):
     registry = Registry(future_path)
     registry.close()
     connection = duckdb.connect(str(future_path))
-    connection.execute("INSERT INTO schema_migrations VALUES (3, 'future', 'now', ?)",
-                       [duckdb.__version__])
+    connection.execute("INSERT INTO schema_migrations VALUES (?, 'future', 'now', ?)",
+                       [Registry.schema_version + 1, duckdb.__version__])
     connection.close()
     with pytest.raises(RegistrySchemaError, match="unsupported.*version"):
         Registry(future_path)
