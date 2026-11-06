@@ -112,3 +112,24 @@ python -m examples.research_management --help
 A real subprocess invocation of `python -m examples.research_management --workspace ... --source ... --study ...` used JSON documents from `tests/research_fixtures.py` in a temporary directory. It registered the source, created Study revision 1 and preserved research_only; assertions passed. Tests cover persistence/reopen, immutable source versions, metadata-only revisions without data rewrites, malformed/tampered refs including large files, schema/time/calendar/session/access/split checks, T-only metadata rejection for TF/TS/TL, tick/date failures, known internal gaps, concurrent revision conflict/history and paused/closed execution guards. Next increment: 01-C; FeatureSet freezing and execution are not claimed here.
 
 Read-only test-agent review identified missing research-use permission checks and weak referenced schema/split payload type checks. Root corrected these and added four regressions before the final 166-test run.
+
+## 01-C Feature / FeatureSet 冻结（2026-11-06）
+
+Acceptance: **COMPLETE for 01-C**. Luna/xhigh implementation and test agents delivered catalog registration and freezing; root integrated ResearchService, reviewed strict schemas and added output-identity/creation-audit fixes. Schema v4 adds providers, templates, metrics, metric sets, concrete Features, FeatureSets, draft revisions and output mappings.
+
+The service now provides register/get provider/template/metric/metric-set, save/freeze/get FeatureSet and get/list Feature methods. Only trusted implementation keys can be registered; resources are immutable versioned documents. Draft updates check expected_revision, while freeze resolves the full explicit configuration and atomically stores concrete definitions and output mappings. Unknown refs, ambiguous multi-output inputs and cycles are rejected. Pending semantics propagate without invented values. Study backlog entries now require actual items in frozen FeatureSets.
+
+Canonical duration spellings and numeric size representations share definitions. Feature identity excludes item aliases and FeatureSet identity, and includes input definition hashes, formula/provider/metric versions, parameters, units and time/validity rules. Config hashes retain the selection provenance. Direct statistical Feature references retain their output IDs; concrete Feature creation records and original FeatureSet creation actors are preserved.
+
+Executed:
+
+```bash
+python -m pytest -q tests/test_feature_sets.py --tb=short
+# 20 passed in 1.72s
+python -m pytest -q --tb=short
+# 186 passed in 17.89s
+python -m ruff check quantsage_discovery scripts tests
+# All checks passed!
+```
+
+Tests cover strict catalog/provider refs, documented recipe/sampling/validity fields, canonical duration/size, alias/set-version independence, changed formulas/parameters, three-metric outputs, exact input/output refs, cycles/ambiguity, pending definitions, concurrent draft versions, failed freeze rollback, reopen and Study backlog bindings. These are synthetic catalog tests, not real L2/catch22 execution. Next increment: 01-D.

@@ -134,12 +134,87 @@ CREATE INDEX studies_status_idx ON studies(status, updated_at);
 _SCHEMA_V3_CHECKSUM = hashlib.sha256(
     f"{_SCHEMA_V2_CHECKSUM}\n{_MIGRATION_V3_SQL}".encode()
 ).hexdigest()
+_MIGRATION_V4_SQL = """
+CREATE TABLE providers (
+    provider_id VARCHAR NOT NULL,
+    version VARCHAR NOT NULL,
+    provider_key VARCHAR NOT NULL,
+    document_json VARCHAR NOT NULL,
+    PRIMARY KEY (provider_id, version)
+);
+CREATE TABLE feature_templates (
+    template_id VARCHAR NOT NULL,
+    version VARCHAR NOT NULL,
+    document_json VARCHAR NOT NULL,
+    PRIMARY KEY (template_id, version)
+);
+CREATE TABLE metrics (
+    metric_id VARCHAR NOT NULL,
+    version VARCHAR NOT NULL,
+    document_json VARCHAR NOT NULL,
+    PRIMARY KEY (metric_id, version)
+);
+CREATE TABLE metric_sets (
+    metric_set_id VARCHAR NOT NULL,
+    version INTEGER NOT NULL,
+    document_json VARCHAR NOT NULL,
+    PRIMARY KEY (metric_set_id, version)
+);
+CREATE TABLE features (
+    feature_id VARCHAR NOT NULL,
+    version INTEGER NOT NULL,
+    definition_hash VARCHAR NOT NULL,
+    kind VARCHAR NOT NULL,
+    step INTEGER NOT NULL,
+    status VARCHAR NOT NULL,
+    document_json VARCHAR NOT NULL,
+    PRIMARY KEY (feature_id, version)
+);
+CREATE INDEX features_definition_idx ON features(definition_hash);
+CREATE TABLE feature_sets (
+    set_id VARCHAR NOT NULL,
+    version INTEGER NOT NULL,
+    state VARCHAR NOT NULL,
+    draft_revision INTEGER NOT NULL,
+    config_hash VARCHAR,
+    document_json VARCHAR NOT NULL,
+    created_at VARCHAR NOT NULL,
+    updated_at VARCHAR NOT NULL,
+    PRIMARY KEY (set_id, version)
+);
+CREATE TABLE feature_set_revisions (
+    set_id VARCHAR NOT NULL,
+    version INTEGER NOT NULL,
+    draft_revision INTEGER NOT NULL,
+    document_json VARCHAR NOT NULL,
+    actor_json VARCHAR NOT NULL,
+    reason VARCHAR NOT NULL,
+    created_at VARCHAR NOT NULL,
+    PRIMARY KEY (set_id, version, draft_revision)
+);
+CREATE TABLE feature_set_outputs (
+    set_id VARCHAR NOT NULL,
+    version INTEGER NOT NULL,
+    item_id VARCHAR NOT NULL,
+    output_id VARCHAR NOT NULL,
+    feature_id VARCHAR NOT NULL,
+    feature_version INTEGER NOT NULL,
+    definition_hash VARCHAR NOT NULL,
+    PRIMARY KEY (set_id, version, item_id, output_id)
+);
+CREATE INDEX feature_set_outputs_feature_idx
+    ON feature_set_outputs(feature_id, feature_version);
+""".strip()
+_SCHEMA_V4_CHECKSUM = hashlib.sha256(
+    f"{_SCHEMA_V3_CHECKSUM}\n{_MIGRATION_V4_SQL}".encode()
+).hexdigest()
 _SCHEMA_CHECKSUMS = {
     1: _SCHEMA_V1_CHECKSUM,
     2: _SCHEMA_V2_CHECKSUM,
     3: _SCHEMA_V3_CHECKSUM,
+    4: _SCHEMA_V4_CHECKSUM,
 }
-_CURRENT_SCHEMA_VERSION = 3
+_CURRENT_SCHEMA_VERSION = 4
 _T = TypeVar("_T")
 
 
@@ -277,6 +352,7 @@ class _DatabaseOwner:
             self._record_schema_version(connection, 1)
             self._apply_migration_v2(connection)
             self._apply_migration_v3(connection)
+            self._apply_migration_v4(connection)
             return
 
         rows = connection.execute(
@@ -304,6 +380,9 @@ class _DatabaseOwner:
             current = 2
         if current == 2:
             self._apply_migration_v3(connection)
+            current = 3
+        if current == 3:
+            self._apply_migration_v4(connection)
 
     @staticmethod
     def _record_schema_version(connection: duckdb.DuckDBPyConnection, version: int) -> None:
@@ -322,6 +401,12 @@ class _DatabaseOwner:
             if statement.strip():
                 connection.execute(statement)
         self._record_schema_version(connection, 3)
+
+    def _apply_migration_v4(self, connection: duckdb.DuckDBPyConnection) -> None:
+        for statement in _MIGRATION_V4_SQL.split(";"):
+            if statement.strip():
+                connection.execute(statement)
+        self._record_schema_version(connection, 4)
 
     def _shutdown(self) -> None:
         if self.pid != os.getpid():

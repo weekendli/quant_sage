@@ -109,7 +109,7 @@ def test_supported_v1_duckdb_schema_upgrades_to_current_version(tmp_path):
     finally:
         connection.close()
     assert "execution_json" in columns
-    assert versions == [(1,), (2,), (3,)]
+    assert versions == [(version,) for version in range(1, Registry.schema_version + 1)]
 
 
 def test_registry_rejects_future_schema_and_checksum_tampering(tmp_path):

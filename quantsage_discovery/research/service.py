@@ -7,6 +7,7 @@ from typing import Any
 
 from quantsage_discovery.core.registry import Registry
 
+from .catalog import FeatureCatalog
 from .errors import ResearchValidationError, StudyNotActiveError, UnknownReferenceError
 from .repository import ResearchRepository
 from .schemas import (
@@ -32,6 +33,47 @@ class ResearchService:
 
     def __init__(self, registry: Registry):
         self._repository = ResearchRepository(registry)
+        self._catalog = FeatureCatalog(registry)
+
+    def register_provider(self, document: Mapping[str, Any]) -> dict[str, Any]:
+        return self._catalog.register_provider(document)
+
+    def register_template(self, document: Mapping[str, Any]) -> dict[str, Any]:
+        return self._catalog.register_template(document)
+
+    def register_metric(self, document: Mapping[str, Any]) -> dict[str, Any]:
+        return self._catalog.register_metric(document)
+
+    def register_metric_set(self, document: Mapping[str, Any]) -> dict[str, Any]:
+        return self._catalog.register_metric_set(document)
+
+    def get_provider(self, ref: str) -> dict[str, Any]:
+        return self._catalog.get_provider(ref)
+
+    def get_template(self, ref: str) -> dict[str, Any]:
+        return self._catalog.get_template(ref)
+
+    def get_metric(self, ref: str) -> dict[str, Any]:
+        return self._catalog.get_metric(ref)
+
+    def get_metric_set(self, ref: str) -> dict[str, Any]:
+        return self._catalog.get_metric_set(ref)
+
+    def save_feature_set(self, document: Mapping[str, Any], *,
+                         expected_revision: int | None = None) -> dict[str, Any]:
+        return self._catalog.save_feature_set(document, expected_revision=expected_revision)
+
+    def freeze_feature_set(self, ref: str, *, expected_revision: int) -> dict[str, Any]:
+        return self._catalog.freeze_feature_set(ref, expected_revision=expected_revision)
+
+    def get_feature_set(self, ref: str) -> dict[str, Any]:
+        return self._catalog.get_feature_set(ref)
+
+    def get_feature(self, ref: str) -> dict[str, Any]:
+        return self._catalog.get_feature(ref)
+
+    def list_features(self, filters: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
+        return self._catalog.list_features(filters)
 
     def register_source(self, document: Mapping[str, Any]) -> dict[str, Any]:
         """Validate and publish one immutable DataSource version."""
@@ -106,6 +148,17 @@ class ResearchService:
         return study
 
     def _validate_study_bindings(self, study: dict[str, Any]) -> None:
+        frozen_sets = {}
+        for ref in study["feature_set_refs"]:
+            feature_set = self.get_feature_set(ref)
+            if feature_set["status"] != "frozen":
+                raise ResearchValidationError(f"Study FeatureSet must be frozen: {ref}")
+            frozen_sets[ref] = {item["item_id"] for item in feature_set["resolved_items"]}
+        for item in study["backlog"]:
+            if item["item_id"] not in frozen_sets[item["feature_set_ref"]]:
+                raise UnknownReferenceError(
+                    f"unknown frozen FeatureSet item: {item['feature_set_ref']}/{item['item_id']}"
+                )
         sources = []
         for ref in study["source_refs"]:
             source_id, version = parse_versioned_ref(ref, "study.source_refs[]")
