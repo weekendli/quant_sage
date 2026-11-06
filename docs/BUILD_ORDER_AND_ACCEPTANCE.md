@@ -10,14 +10,14 @@
 |---|---|---|
 | M0 · Scaffold | 工程结构、config/schema、CLI、pytest、合成数据生成器 | `pytest` 与 `quantsage --help` 正常 |
 | M1 · Engine/Data | 01+02；DAG、manifest、Parquet ingest、质量审计 | 从输入到 Data Passport；缓存与恢复可测 |
-| M2 · Understand | 03+04；Dimensions/Primitives、Atlas、Baseline | 真实输出统计画像与条件基准，无未来标签 |
-| M3 · Construct | 05；Feature Grammar/AST、compiler、registry | 10+ 有用特征、clock/event windows 数值测试 |
+| M2 · Construct | 03+04；Primitives、业务公式与时间窗口 | 原始 L2 公式不变、合法组合和有效性可查，clock/event windows 数值可验证 |
+| M3 · Profile | 05；所选 catch22/tsfeatures、质量/coverage | 选定业务或 primitive 统计向量、trailing 时效和结果复用可验证；Atlas/条件 baseline 延期 |
 | M4 · Observe | 06+07；事件、状态检测 | 可对合成异常触发 episode，online 无未来数据 |
 | M5 · Discover | 08+09；现象发现、六种生成器 | 结构化 Phenomenon/Hypothesis Card，能生成竞争解释 |
 | M6 · Experiment | 10+11；Cube、对照、验证、ledger | 有效果/区间/样本数/多重检验、holdout 门控 |
 | M7 · Loop | 12+13；研究规划与端到端报告 | 单次 run 生成全血缘、下一实验和复现报告 |
 
-**原则：先跑通 M0–M2；不要一开始把 M0–M7 全做完再测试。**
+**原则：逐步验收 M0–M2 的数据/业务特征，再验收 M3 统计阶段；不要一开始把 M0–M7 全做完再测试。**
 
 ## 每个 Codex Task 的固定指令
 
@@ -29,9 +29,9 @@
 
 1. **Task 01 — Engine**：执行 `steps/01_workflow_engine/SPEC.md`；交付 stage plugin interface、DAG/toposort、cache、manifest、resume、CLI。
 2. **Task 02 — Intake**：执行 `steps/02_data_onboarding/SPEC.md`；交付 schema adapter、quality、session parser、Parquet 输出。
-3. **Task 03 — Primitives**：执行 `steps/03_research_dimensions_and_primitives/SPEC.md`；自动推导可用研究维度，计算 mid/spread/OBI/update-intensity。
-4. **Task 04 — Atlas**：执行 `steps/04_statistical_atlas_and_baselines/SPEC.md`；条件基准、统计指纹、跨时段/合约依赖。
-5. **Task 05 — Grammar**：执行 `steps/05_feature_grammar/SPEC.md`；typed AST、time-aware operators、registry、lazy execution。
+3. **Task 03 — Primitives**：执行 `steps/03_research_dimensions_and_primitives/SPEC.md`；按所选依赖校验可用性，计算基础量并保留有效性与血缘。
+4. **Task 04 — Business Features**：执行 `steps/04_business_features/SPEC.md`；固定业务公式、合法参数组合、lookback windows、registry 和有界执行，不依赖 Atlas。
+5. **Task 05 — Statistical Features**：执行 `steps/05_statistical_features/SPEC.md`；所选 catch22/tsfeatures、trailing 统计向量及 FeatureResult/coverage；条件基准与完整 Atlas 延期。
 6. **Task 06 — Events**：执行 `steps/06_event_detector/SPEC.md`；极端/背离、事件片段、online detected time。
 7. **Task 07 — Regimes**：执行 `steps/07_regime_detector/SPEC.md`；L1 状态，L2 optional adapter，过滤式状态时序。
 8. **Task 08 — Phenomena**：执行 `steps/08_phenomenon_discovery/SPEC.md`；候选现象、对照、证据与去重。
@@ -53,7 +53,11 @@
 `S7`: 多重检验：1000 个无信号候选不应被当作确认规律。  
 `S8`: final holdout 被修改时，上游选择/阈值/候选不变化。
 
-## 最小演示（M7）
+## 当前最小演示（Step 02–05，目标验收）
+
+使用已冻结 Step 02 数据源，A 少量组合/小范围，B 同 FeatureSet 扩日期，C 新 FeatureSet 扩统计项；展示逐项状态、缓存、未处理范围、有效性及 Review。仅步骤就绪后运行真实数据验收；现有算术批次演示只证明引擎基础。FeatureSet 管理格式见 examples/quant_discovery.yaml，非当前 CLI 可运行配置。
+
+## 后续完整演示（M7）
 
 命令：
 
@@ -65,7 +69,7 @@ quantsage run --config examples/quant_discovery.yaml --mode validation
 quantsage report --run-id <run_id>
 ```
 
-展示：Data Passport → Primitives → Atlas → `bid_depth_depletion_30s` Feature → Liquidity Shock Event → Low Liquidity Regime → Depth-price Divergence Phenomenon → H1/H2 → 6 个示意 Cells → Falsification Report → Next Experiment。**上面是测试路径，不得把假定结果写成真实验证结论**。
+展示：Data Passport → Primitives → `bid_depth_depletion_30s` Feature → Statistical Features / Atlas / Baselines → Liquidity Shock Event → Low Liquidity Regime → Depth-price Divergence Phenomenon → H1/H2 → 6 个示意 Cells → Falsification Report → Next Experiment。**上面是测试路径，不得把假定结果写成真实验证结论**。
 
 ## Definition of Done
 

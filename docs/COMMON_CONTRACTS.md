@@ -62,11 +62,13 @@ purge_and_embargo: enabled
 }
 ```
 
-所有 ID 是稳定引用，未实现时不能在报告里填假数据；大数据产物 URI 必须可访问且内容 hash 可验证。不要将 30GB 表直接保存为 SQLite blob。
+所有 ID 是稳定引用，未实现时不能在报告里填假数据；大数据产物 URI 必须可访问且内容 hash 可验证。数值表存 Parquet，目标管理数据库为 DuckDB；不要把 30GB 数值表存入元数据 JSON/blob。数据库并发约束见 [实施设计](IMPLEMENTATION_DESIGN.md)。
+
+Step 02–05 领域产物按 `(exchange, instrument_id, trade_date)` 分区，session 独立约束窗口。用户补充的行情 metadata（含历史 tick 规则）按精确版本/hash 引用，进入源绑定和计算身份，不改写冻结行情。成交量未验证及累计量/增量对账不一致仅警告，真实缺口、reset 和非法值仍按各指标契约处理。默认 trailing 不拼接缺口两端；缺少行情的推荐机制见实施设计 §6.4。
 
 ## D. Registry / Experiment Ledger
 
-至少提供实体表：`datasets`, `runs`, `stage_runs`, `artifacts`, `primitives`, `features`, `events`, `regimes`, `phenomena`, `hypotheses`, `cube_cells`, `experiments`, `results`, `knowledge_edges`。
+以下是后续完整研究领域的逻辑登记类别，不要求 Step 02–05 提前创建独立实体表。当前用 Study/Feature/FeatureSet/Run 与 DataSource/FeatureResult/Review，复用既有 artifact/registry；按阶段需要映射这些类别：`datasets`, `runs`, `stage_runs`, `artifacts`, `primitives`, `features`, `events`, `regimes`, `phenomena`, `hypotheses`, `cube_cells`, `experiments`, `results`, `knowledge_edges`。
 
 其中每个候选应有 `source_refs`, `schema_version`, `config`, `created_in_run`, `available_from`, `status`, `notes`。`experiment` 还保存 `registered_before_test`, `search_family_id`, `split_id`, `time_range`, `n_trials_in_family`。
 

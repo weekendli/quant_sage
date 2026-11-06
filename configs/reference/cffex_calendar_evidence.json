@@ -1,0 +1,355 @@
+{
+  "evidence_version": "1.0.0",
+  "verified_at": "2026-11-02",
+  "scope": {
+    "exchange": "CFFEX",
+    "products": ["T", "TF", "TS", "TL"],
+    "source_file_count": 79,
+    "source_partition_start": "2020-01",
+    "source_partition_end": "2026-07",
+    "trade_date_start": "2020-01-02",
+    "trade_date_end": "2026-07-31",
+    "source_distinct_trade_date_count": 1587
+  },
+  "calendar_comparison": {
+    "status": "verified_for_range",
+    "candidate_calendar_id": "CN_STOCK",
+    "verification_basis": "Exact comparison of all weekdays in scope against the CFFEX annual holiday closures below, including the 2020 COVID amendment; not inferred from sample dates.",
+    "expected_weekday_count": 1594,
+    "catalog_date_count": 1594,
+    "missing_catalog_dates": [],
+    "unexpected_catalog_dates": [],
+    "source_dates_absent_from_calendar": [],
+    "catalog_dates_without_source_rows": [
+      "2021-01-08",
+      "2021-01-11",
+      "2021-04-07",
+      "2021-05-06",
+      "2021-05-07",
+      "2021-06-03",
+      "2021-06-17"
+    ],
+    "catalog": {
+      "current_pointer": "/data/marketdata/catalog/duckdb/current.json",
+      "data_release_id": "data-restructure-full-v13",
+      "db_release_id": "db-restructure-full-v16",
+      "database": "catalog/duckdb/releases/db-restructure-full-v16/marketdata.duckdb",
+      "database_manifest": "catalog/duckdb/releases/db-restructure-full-v16/database_manifest.json",
+      "database_manifest_sha256": "b5c7c82fffa3018ba5ae088e99d597f8c7c1bf9b041dd4efd01c9c53c64a8797",
+      "relation": "reference.calendars",
+      "catalog_selected_file": "canonical/reference/calendars/v3/layout=l1/part-3024-001.parquet",
+      "calendar_file_sha256": "840bad7d23af58e3419ec3f0f6cf4f873c188de3eac4178c93853ee6e6ddb4cd",
+      "calendar_file_size_bytes": 315344,
+      "catalog_total_dates": 4055,
+      "catalog_first_date": "2010-01-04",
+      "catalog_last_date": "2026-09-11",
+      "calendar_id_count": 1,
+      "duplicate_sibling_file": "canonical/reference/calendars/v3/layout=l1/part-2024-001.parquet",
+      "duplicate_sibling_file_sha256": "840bad7d23af58e3419ec3f0f6cf4f873c188de3eac4178c93853ee6e6ddb4cd",
+      "duplicate_sibling_key_symmetric_difference": 0
+    },
+    "limits": [
+      "CN_STOCK remains the provider's calendar ID; verification establishes exact date membership only for the bounded CFFEX range above.",
+      "The trading_sessions and settlement_calendars views are empty placeholders and do not supply intraday rules.",
+      "The 1587 source dates are a subset of the 1594 expected exchange dates; absent source dates do not imply calendar closures."
+    ]
+  },
+  "weekend_rule": {
+    "closed_weekdays": ["Saturday", "Sunday"],
+    "basis": "The CFFEX annual notices explicitly identify weekend closures around holiday windows; weekday comparison applies the regular Saturday/Sunday closure rule."
+  },
+  "annual_notices": [
+    {
+      "year": 2020,
+      "source_refs": ["holiday_2020", "holiday_2020_covid_amendment"],
+      "closure_ranges_inclusive": [
+        {"start": "2020-01-01", "end": "2020-01-01", "label": "New Year"},
+        {"start": "2020-01-24", "end": "2020-02-02", "label": "Spring Festival; final range after 2020-01-27 amendment"},
+        {"start": "2020-04-04", "end": "2020-04-06", "label": "Qingming"},
+        {"start": "2020-05-01", "end": "2020-05-05", "label": "Labour Day"},
+        {"start": "2020-06-25", "end": "2020-06-27", "label": "Dragon Boat"},
+        {"start": "2020-10-01", "end": "2020-10-08", "label": "National Day / Mid-Autumn"}
+      ]
+    },
+    {
+      "year": 2021,
+      "source_refs": ["holiday_2021"],
+      "closure_ranges_inclusive": [
+        {"start": "2021-01-01", "end": "2021-01-03", "label": "New Year"},
+        {"start": "2021-02-11", "end": "2021-02-17", "label": "Spring Festival"},
+        {"start": "2021-04-03", "end": "2021-04-05", "label": "Qingming"},
+        {"start": "2021-05-01", "end": "2021-05-05", "label": "Labour Day"},
+        {"start": "2021-06-12", "end": "2021-06-14", "label": "Dragon Boat"},
+        {"start": "2021-09-19", "end": "2021-09-21", "label": "Mid-Autumn"},
+        {"start": "2021-10-01", "end": "2021-10-07", "label": "National Day"}
+      ]
+    },
+    {
+      "year": 2022,
+      "source_refs": ["holiday_2022"],
+      "closure_ranges_inclusive": [
+        {"start": "2022-01-01", "end": "2022-01-03", "label": "New Year"},
+        {"start": "2022-01-31", "end": "2022-02-06", "label": "Spring Festival"},
+        {"start": "2022-04-03", "end": "2022-04-05", "label": "Qingming"},
+        {"start": "2022-04-30", "end": "2022-05-04", "label": "Labour Day"},
+        {"start": "2022-06-03", "end": "2022-06-05", "label": "Dragon Boat"},
+        {"start": "2022-09-10", "end": "2022-09-12", "label": "Mid-Autumn"},
+        {"start": "2022-10-01", "end": "2022-10-07", "label": "National Day"}
+      ]
+    },
+    {
+      "year": 2023,
+      "source_refs": ["holiday_2023"],
+      "closure_ranges_inclusive": [
+        {"start": "2022-12-31", "end": "2023-01-02", "label": "New Year"},
+        {"start": "2023-01-21", "end": "2023-01-27", "label": "Spring Festival"},
+        {"start": "2023-04-05", "end": "2023-04-05", "label": "Qingming"},
+        {"start": "2023-04-29", "end": "2023-05-03", "label": "Labour Day"},
+        {"start": "2023-06-22", "end": "2023-06-24", "label": "Dragon Boat"},
+        {"start": "2023-09-29", "end": "2023-10-06", "label": "Mid-Autumn / National Day"}
+      ]
+    },
+    {
+      "year": 2024,
+      "source_refs": ["holiday_2024"],
+      "closure_ranges_inclusive": [
+        {"start": "2023-12-30", "end": "2024-01-01", "label": "New Year"},
+        {"start": "2024-02-09", "end": "2024-02-17", "label": "Spring Festival; includes Lunar New Year's Eve"},
+        {"start": "2024-04-04", "end": "2024-04-06", "label": "Qingming"},
+        {"start": "2024-05-01", "end": "2024-05-05", "label": "Labour Day"},
+        {"start": "2024-06-08", "end": "2024-06-10", "label": "Dragon Boat"},
+        {"start": "2024-09-15", "end": "2024-09-17", "label": "Mid-Autumn"},
+        {"start": "2024-10-01", "end": "2024-10-07", "label": "National Day"}
+      ]
+    },
+    {
+      "year": 2025,
+      "source_refs": ["holiday_2025"],
+      "closure_ranges_inclusive": [
+        {"start": "2025-01-01", "end": "2025-01-01", "label": "New Year"},
+        {"start": "2025-01-28", "end": "2025-02-04", "label": "Spring Festival"},
+        {"start": "2025-04-04", "end": "2025-04-06", "label": "Qingming"},
+        {"start": "2025-05-01", "end": "2025-05-05", "label": "Labour Day"},
+        {"start": "2025-05-31", "end": "2025-06-02", "label": "Dragon Boat"},
+        {"start": "2025-10-01", "end": "2025-10-08", "label": "National Day / Mid-Autumn"}
+      ]
+    },
+    {
+      "year": 2026,
+      "source_refs": ["holiday_2026"],
+      "closure_ranges_inclusive": [
+        {"start": "2026-01-01", "end": "2026-01-03", "label": "New Year"},
+        {"start": "2026-02-15", "end": "2026-02-23", "label": "Spring Festival"},
+        {"start": "2026-04-04", "end": "2026-04-06", "label": "Qingming"},
+        {"start": "2026-05-01", "end": "2026-05-05", "label": "Labour Day"},
+        {"start": "2026-06-19", "end": "2026-06-21", "label": "Dragon Boat"},
+        {"start": "2026-09-25", "end": "2026-09-27", "label": "Mid-Autumn; outside verified L2 range"},
+        {"start": "2026-10-01", "end": "2026-10-07", "label": "National Day; outside verified L2 range"}
+      ]
+    }
+  ],
+  "session_rules": {
+    "timezone": "Asia/Shanghai",
+    "timezone_evidence_note": "The exchange rule PDFs state local clock times without a timezone field. Asia/Shanghai mapping is independently consistent with the source sample's TRADINGTIME/UNIX offset check.",
+    "software_interval_convention": "[start, end); an implementation convention because the rule PDFs state clock times but do not specify software endpoint inclusivity.",
+    "last_trading_day_rule": "Second Friday of the contract month; if it is a statutory holiday or otherwise does not trade, use the next trading day. Last-trading-day continuous trading is AM-only.",
+    "rules": [
+      {
+        "rule_id": "cffex_govt_bond_pre_2020_07_20",
+        "products": ["T", "TF", "TS"],
+        "effective_for_scope_start": "2020-01-02",
+        "effective_for_scope_end": "2020-07-17",
+        "opening_auction": {"start": "09:10:00", "end": "09:15:00", "order_submission_end": "09:14:00", "matching_start": "09:14:00"},
+        "morning_continuous": {"start": "09:15:00", "end": "11:30:00"},
+        "afternoon_continuous_regular_day": {"start": "13:00:00", "end": "15:15:00"},
+        "last_trading_day_afternoon": "closed",
+        "source_refs": ["session_old_tf", "session_old_ts", "session_old_t_mirror", "session_2020_rule_revision_index"]
+      },
+      {
+        "rule_id": "cffex_govt_bond_post_2020_07_20",
+        "products": ["T", "TF", "TS"],
+        "effective_from": "2020-07-20",
+        "opening_auction": {"start": "09:25:00", "end": "09:30:00", "order_submission_end": "09:29:00", "matching_start": "09:29:00"},
+        "morning_continuous": {"start": "09:30:00", "end": "11:30:00"},
+        "afternoon_continuous_regular_day": {"start": "13:00:00", "end": "15:15:00"},
+        "last_trading_day_afternoon": "closed",
+        "source_refs": ["session_2020_rule_revision_index", "session_2020_t", "session_2020_tf", "session_2020_ts"]
+      },
+      {
+        "rule_id": "cffex_tl_from_listing",
+        "products": ["TL"],
+        "effective_from": "2023-04-21",
+        "opening_auction": {"start": "09:25:00", "end": "09:30:00", "order_submission_end": "09:29:00", "matching_start": "09:29:00"},
+        "morning_continuous": {"start": "09:30:00", "end": "11:30:00"},
+        "afternoon_continuous_regular_day": {"start": "13:00:00", "end": "15:15:00"},
+        "last_trading_day_afternoon": "closed",
+        "source_refs": ["session_tl_rules", "session_tl_listing"]
+      }
+    ],
+    "sample_classifications": [
+      {"local_time": "09:29", "date_context": "2026 sample", "classification": "opening_auction_matching_phase", "continuous_trading": false},
+      {"local_time": "15:24", "date_context": "2026 sample", "classification": "out_of_session_after_15_15_close", "accepted_session": false, "handling": "quarantine unless an upstream publisher rule is independently verified"}
+    ]
+  },
+  "sources": [
+    {
+      "source_ref": "holiday_2020",
+      "issuer": "China Financial Futures Exchange (CFFEX)",
+      "document_title": "关于2020年部分节假日休市安排的通知",
+      "issuer_document_date": "2019-12-24",
+      "document_number": null,
+      "mirror_url": "https://www.hicend.com/h5/CommonArticleDetail/4972",
+      "mirror_provenance": "Hicend (Shanghai Securities Futures Company) carries the notice signed by China Financial Futures Exchange and labels the issuer in its page heading.",
+      "original_issuer_url": null
+    },
+    {
+      "source_ref": "holiday_2020_covid_amendment",
+      "issuer": "China Financial Futures Exchange (CFFEX)",
+      "document_title": "关于调整2020年春节休市相关安排的通知",
+      "issuer_document_date": "2020-01-27",
+      "document_number": null,
+      "mirror_url": "https://www.citicsf.com/e-futures/content/000509/749370",
+      "mirror_provenance": "CITIC Futures page attributes the notice to CFFEX and gives the original CFFEX URL.",
+      "original_issuer_url": "http://www.cffex.com.cn/jysgg/20200127/24291.html"
+    },
+    {
+      "source_ref": "holiday_2021",
+      "issuer": "China Financial Futures Exchange (CFFEX)",
+      "document_title": "关于2021年部分节假日休市安排的通知",
+      "issuer_document_date": "2020-12-23",
+      "document_number": "中金所发〔2020〕35号",
+      "mirror_url": "https://www.mkqh.com/front/serviceinfo/23817",
+      "mirror_provenance": "Maike Futures labels the article as a forwarded CFFEX notice; body carries CFFEX number and signature.",
+      "original_issuer_url": null
+    },
+    {
+      "source_ref": "holiday_2022",
+      "issuer": "China Financial Futures Exchange (CFFEX)",
+      "document_title": "关于2022年部分节假日休市安排的通知",
+      "issuer_document_date": "2021-12-17",
+      "document_number": "中金所发〔2021〕64号",
+      "mirror_url": "https://www.nanhua.net/news/2021/12/d649f591-7768-4b32-ba3a-de312ccff135.html?t=aged",
+      "mirror_provenance": "Nanhua Futures labels CFFEX as author and reproduces the issuer-signed notice.",
+      "original_issuer_url": null
+    },
+    {
+      "source_ref": "holiday_2023",
+      "issuer": "China Financial Futures Exchange (CFFEX)",
+      "document_title": "关于2023年部分节假日休市安排的通知",
+      "issuer_document_date": "2022-12-27",
+      "document_number": "中金所发〔2022〕81号",
+      "mirror_url": "https://www.bocifco.com/newsinfo.aspx?cid=3&id=47830",
+      "mirror_provenance": "Bank of China International Futures labels the page as forwarding CFFEX's notice and reproduces its signature.",
+      "original_issuer_url": null
+    },
+    {
+      "source_ref": "holiday_2024",
+      "issuer": "China Financial Futures Exchange (CFFEX)",
+      "document_title": "关于2024年部分节假日休市安排的通知",
+      "issuer_document_date": "2023-12-26",
+      "document_number": "中金所发〔2023〕78号",
+      "mirror_url": "https://fund.eastmoney.com/a/202312262944247718.html",
+      "mirror_provenance": "Eastmoney/Tiantian Fund labels CFFEX as the source and reproduces its notice and signature.",
+      "original_issuer_url": null
+    },
+    {
+      "source_ref": "holiday_2025",
+      "issuer": "China Financial Futures Exchange (CFFEX)",
+      "document_title": "关于2025年部分节假日休市安排的通知",
+      "issuer_document_date": "2024-12-23",
+      "document_number": "中金所发〔2024〕74号",
+      "mirror_url": "https://www.zjncf.com.cn/customer/info/4746.html",
+      "mirror_provenance": "Zhejiang New Century Futures labels the page as a CFFEX exchange notice and reproduces its signature.",
+      "original_issuer_url": null
+    },
+    {
+      "source_ref": "holiday_2026",
+      "issuer": "China Financial Futures Exchange (CFFEX)",
+      "document_title": "关于2026年部分节假日休市安排的通知",
+      "issuer_document_date": "2025-12-17",
+      "document_number": "中金所发〔2025〕55号",
+      "mirror_url": "https://news.bjd.com.cn/2025/12/17/11469627.shtml",
+      "mirror_provenance": "Beijing Daily page attributes source to CFFEX, carries notice number and issuer signature; also distributed as CFFEX via Public.",
+      "additional_issuer_release_mirror": "https://ebs.publicnow.com/view/ADDFFE5578158AB71CC79990697606A0CA2A0458",
+      "original_issuer_url": null
+    },
+    {
+      "source_ref": "session_old_tf",
+      "issuer": "China Financial Futures Exchange (CFFEX)",
+      "document_title": "中国金融期货交易所5年期国债期货合约交易细则",
+      "document_revision_date": "2018-12-28",
+      "mirror_url": "https://www.e-cffex.com.cn/u/cms/www/202001/1709445036bc.pdf",
+      "mirror_provenance": "Original CFFEX-hosted rule PDF. Specifies 09:10–09:15 auction, 09:15 continuous open, AM-only last trading day.",
+      "original_issuer_url": "https://www.e-cffex.com.cn/u/cms/www/202001/1709445036bc.pdf"
+    },
+    {
+      "source_ref": "session_old_ts",
+      "issuer": "China Financial Futures Exchange (CFFEX)",
+      "document_title": "中国金融期货交易所2年期国债期货合约交易细则",
+      "document_revision_date": "2018-12-28",
+      "mirror_url": "https://miep-cdn.e-cffex.com.cn/20181112-%E3%80%8A%E4%B8%AD%E5%9B%BD%E9%87%91%E8%9E%8D%E6%9C%9F%E8%B4%A7%E4%BA%A4%E6%98%93%E6%89%802%E5%B9%B4%E6%9C%9F%E5%9B%BD%E5%80%BA%E6%9C%9F%E8%B4%A7%E5%90%88%E7%BA%A6%E4%BA%A4%E6%98%93%E7%BB%86%E5%88%99%E3%80%8B.pdf",
+      "mirror_provenance": "CFFEX-owned e-cffex CDN path; the PDF is an issuer-authored TS rule copy.",
+      "original_issuer_url": null
+    },
+    {
+      "source_ref": "session_old_t_mirror",
+      "issuer": "China Financial Futures Exchange (CFFEX)",
+      "document_title": "中国金融期货交易所10年期国债期货合约交易细则",
+      "document_revision_date": "2018-12-28",
+      "mirror_url": "https://www.glqh.com/u/cms/www/202205/112209176757.pdf",
+      "mirror_provenance": "GL Futures-hosted copy of CFFEX's 10-year contract rules; issuer identity is in the document, but the file is not hosted on a CFFEX domain.",
+      "original_issuer_url": null
+    },
+    {
+      "source_ref": "session_2020_rule_revision_index",
+      "issuer": "China Financial Futures Exchange (CFFEX)",
+      "document_title": "交易所规则 index listing 2020 revisions to 2-, 5- and 10-year treasury futures rules",
+      "document_date": "2020-07-08",
+      "original_issuer_url": "https://www.e-cffex.com.cn/web/fljfg/",
+      "mirror_provenance": "Official CFFEX rule index states each revised T/TF/TS contract rule took effect on 2020-07-20."
+    },
+    {
+      "source_ref": "session_2020_t",
+      "issuer": "China Financial Futures Exchange (CFFEX)",
+      "document_title": "中国金融期货交易所10年期国债期货合约交易细则",
+      "document_revision_date": "2020-06-12",
+      "original_issuer_url": "https://www.e-cffex.com.cn/u/cms/www/202007/08152235b2ys.pdf",
+      "mirror_provenance": "Original CFFEX-hosted rule PDF; specifies 09:25–09:30 auction and 09:30 continuous open."
+    },
+    {
+      "source_ref": "session_2020_tf",
+      "issuer": "China Financial Futures Exchange (CFFEX)",
+      "document_title": "中国金融期货交易所5年期国债期货合约交易细则",
+      "document_revision_date": "2020-06-12",
+      "original_issuer_url": "https://www.e-cffex.com.cn/u/cms/www/202007/08152340rnz2.pdf",
+      "mirror_provenance": "Original CFFEX-hosted rule PDF; specifies 09:25–09:30 auction and 09:30 continuous open."
+    },
+    {
+      "source_ref": "session_2020_ts",
+      "issuer": "China Financial Futures Exchange (CFFEX)",
+      "document_title": "中国金融期货交易所2年期国债期货合约交易细则",
+      "document_revision_date": "2020-06-12",
+      "original_issuer_url": "https://www.e-cffex.com.cn/u/cms/www/202007/08152522nwhg.pdf",
+      "mirror_provenance": "Original CFFEX-hosted rule PDF; specifies 09:25–09:30 auction and 09:30 continuous open."
+    },
+    {
+      "source_ref": "session_tl_rules",
+      "issuer": "China Financial Futures Exchange (CFFEX)",
+      "document_title": "中国金融期货交易所30年期国债期货合约交易细则",
+      "document_revision_date": "2023-04-14",
+      "original_issuer_url": "http://www.cffex.com.cn/jystz/20230414/32081.html",
+      "mirror_url": "https://np-newsimg.dfcfw.com/download/A2_cms_f_20230414214217120692?abc9304.pdf=&direct=1",
+      "mirror_provenance": "Issuer-authored TL rule PDF distributed from Eastmoney/DFCFW image CDN; the rule states 09:25–09:30 auction, 09:30–11:30 / 13:00–15:15, AM-only last trading day."
+    },
+    {
+      "source_ref": "session_tl_listing",
+      "issuer": "China Financial Futures Exchange (CFFEX)",
+      "document_title": "中金所国债期货新合约上市通知",
+      "issuer_document_date": "2023-04-20",
+      "document_number": "中金所发〔2023〕25号",
+      "mirror_url": "https://www.ccbfutures.com/main/a/20230420/60654.shtml?catalog_no=service_center&headercatalogno=service_center",
+      "mirror_provenance": "China Construction Bank Futures page labels CFFEX as the source and reproduces the issuer-signed listing notice for 2023-04-21.",
+      "original_issuer_url": null
+    }
+  ]
+}

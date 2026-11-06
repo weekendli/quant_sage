@@ -8,7 +8,7 @@ S0–S8 suite, with one representative small synthetic pipeline fixture.
 
 ## Required acceptance checks
 
-- [ ] One CLI command reaches DataPassport → Primitive → Atlas → Event/Regime → Phenomenon.
+- [ ] One CLI command reaches DataPassport → Primitive → Business Features → Statistical Features/Atlas → Event/Regime → Phenomenon.
 - [ ] Same run can extend to Hypothesis → Cube → Falsification → Planner on fixture.
 - [ ] Report-only mode does not refit or rerun upstream inference.
 - [ ] Fault injection followed by resume produces no duplicate published results.

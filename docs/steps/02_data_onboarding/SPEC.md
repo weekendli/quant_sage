@@ -1,23 +1,48 @@
 # Step 02 — Data Onboarding & Quality
 
+## 当前收敛范围：Step 02–05 数据与特征闭环
+
+本步交付可复用的 DataSource：以现有 onboarding.json 与 artifact manifests 表达源版本、标准化行情、质量、日历/session 和血缘。Study/Run 通过 refs 消费；DataSource 是管理层映射，不要求重写已冻结的 onboarding 文件。新 feature、size、L/W 或 statistic 选择不触发重新接入。只有源数据/接入规则变化或结果不可用时才需要新的接入产物；扩展 Run 日期先检查已有源覆盖，覆盖外明确阻断或另行接入。
+
+本步不承担 FeatureSet 解析、指标计算或发现模型。已完成证据见 RESULTS.md；本次仅收敛消费边界，不改变历史交付及验收结论。
+
+后续行情 metadata 由用户提供，作为 DataSource 的版本化 `market_metadata_ref`，含 tick_size 的产品/合约、生效日期、单位与来源。补充时发布 DataSource 新版本并继续引用原行情产物；不要求元数据服务，不改写历史 onboarding.json。缺少 tick 仅限制依赖它的指标。
+
+`VOLUME_INCREMENT_UNVERIFIED` 及累计量/增量对账不一致仅警告，不据此禁算、隔离或强制 NA；保留源值并向下游传递警告。真实缺失、非法数值、reset 与缺口另按有效性处理。推荐的缺口 manifest 和窗口恢复规则见 [实施设计 §6.4](../../IMPLEMENTATION_DESIGN.md#64-缺少行情的推荐处理机制)；可由现有 quotes/quarantine/质量报告派生，不改变冻结交付。
+
+统一管理字段见 [domain.detail.md](../../domain.detail.md)，当前调度边界见 [WORKFLOW_STAGES.md](../../WORKFLOW_STAGES.md)。旧 Registry 名称表示 Feature/FeatureResult 的分类视图，不要求新增独立领域仓库。Study、FeatureSet、Run、Review 的通用管理由 Step 01 承担，领域步骤只实现本步算子与结果契约。
+
+
 ## 目的
 
-让系统**正确理解输入到底是什么数据**。输入约 30GB Parquet/CSV 国债期货 L2 行情快照，也允许其他市场通过适配器接入。
+让系统**正确理解输入到底是什么数据**。当前输入为本地 Parquet 国债期货 L2 行情快照，通过 Python / DuckDB 读取；也允许其他市场通过适配器接入。框架仍需支持 30GB+ 数据，不把目标容量当作当前文件大小。
 
 ## 输入 / 输出
 
 - 输入：多文件 Parquet/CSV；字段 mapping；exchange/calendar/contract metadata；用户声明的语义信息。
 - 输出：标准化行情 Parquet（按 `instrument_id/trade_date` 分区）、`DatasetPassport`、`QualityReport`、`data_snapshot_id`、异常隔离表。
 
+## 已核验的数据位置与访问
+
+详细访问示例及 2026-11-02 的核验记录见 [data.md](../../data.md)。
+
+- 行情根目录：`/data/marketdata-backup/futures/treasury_futures/parquet/l2_snapshot/v1`。
+- 月度布局：`year=YYYY/month=MM/part-0.parquet`，同目录有 `_manifest.json` 和 `_quality.json`。当次清单为 79 个文件，分区从 2020-01 至 2026-07，共 5,903,156,058 字节；Parquet footer 行数合计 257,407,377。这是文件清单与元数据核验，不是全量质量验收。
+- POC 真实样本：`/data/marketdata-backup/futures/treasury_futures/parquet/l2_snapshot/v1/year=2026/month=01/part-0.parquet`。不要求把样本复制进仓库；本地实文件 hash 必须与已记录 profile 对账。
+- 读取方式：Python 中使用 DuckDB `read_parquet(?, hive_partitioning=false)`，参数为单文件或限定月份的 glob；按需投影、过滤，批量处理。全量 glob 为 `<root>/year=*/month=*/*.parquet`。物理列以 Parquet 为准，目录分区列不是源业务字段。
+- 日历入口：解析 `/data/marketdata/catalog/duckdb/current.json` 的 `database`，相对 `/data/marketdata` 定位数据库，以 `read_only=True` 打开并查询 `reference.calendars`。记录并固定所选 release 和实际依赖文件；不要根据目录名猜测最新版本。
+
 ## POC 交付与日历来源
 
 POC 的下游使用场景、文件清单、入口字段和发布条件以 [DELIVERY.md](DELIVERY.md) 为准。复用已有 [源 schema JSON](../../references/gov_bond_l2.schema.json)，只规定确定性字段映射及必要派生列，不另建一份业务字段字典。DatasetPassport 和 QualityReport 在 POC 中内嵌于 onboarding.json，数据与冻结日历通过 ArtifactManifest 引用。
 
-交易日历从用户提供的 Marketdata LAN API 获取：`https://192.168.1.102/marketdata-api/`，表为 `marketdata.reference.calendars`。先发现并确认适用于 CFFEX 国债期货的 calendar_id，再获取数据区间日历，保存 release、查询参数和结果 hash。示例 CN_STOCK 不作为本数据源的默认日历。API 说明尚未定义日内会话表，日内会话需来自经确认的 API 表或独立版本化规则；交易日与日内时段分别验证。
+本机优先通过上述只读 DuckDB catalog 获取日历；LAN 客户端也可查询 `https://192.168.1.102/marketdata-api/` 的 `marketdata.reference.calendars`。当前核验的 release 为 `db-restructure-full-v16`，仅有 `CN_STOCK`：4,055 个交易日，2010-01-04 至 2026-09-11，其在本次数据范围内的适用性已由 [CFFEX 公告核验](../../references/cffex_calendar_evidence.md) 确认：2020-01-02 至 2026-07-31 的 1,594 个交易日完全一致。保留 provider ID=CN_STOCK，运行时校验所选 release、文件 hash 和适用区间，不把有边界的核验结果当作默认日历授权。
+
+日历物理目录为 `/data/marketdata/canonical/reference/calendars/v3/layout=l1/`；当次 catalog 选择 `part-3024-001.parquet`。另一个 `part-2024-001.parquet` 含相同交易日键，直接扫 `*.parquet` 会得到 8,110 行并重复日期。按 catalog 解析实际文件，不合并所有文件。`reference.trading_sessions` 和 `reference.settlement_calendars` 均为空占位 view，不能提供会话规则。本次独立核验的历年休市安排及会话规则见 [证据 JSON](../../../configs/reference/cffex_calendar_evidence.json)，包含 2020-07-20 前后时段、集合竞价阶段和最后交易日上午交易规则；运行时须校验并冻结该证据及适用规则。缺少有效证据仍应阻断成功交付。全量源只有 1,587 个不同交易日，7 个应开市但无记录的日期须作为覆盖缺口报告，不能伪造成休市。
 
 ## 本数据源字段依据
 
-先读取 [L2 Schema](../../references/gov_bond_l2.schema.md)、[机读版本](../../references/gov_bond_l2.schema.json)，并对照 [Word 字段说明](../../references/国债期货%20L2.docx) 与 [实际样本](../../references/part-0.parquet)。本次样本为 **3,178,989 行、66 列、26 个 row group 的逐条 L2 快照**，包含 Word 的全部 62 个业务字段和 4 个导入元数据字段。此前 240 行、35 列汇总表的描述已失效；当前 adapter 为 `l2_snapshots`。每行是行情观测，不是逐笔成交或委托记录。
+先读取 [L2 Schema](../../references/gov_bond_l2.schema.md)、[机读版本](../../references/gov_bond_l2.schema.json)，并对照 [Word 字段说明](../../references/国债期货%20L2.docx) 与上述本地 2026-01 月度样本。本次样本为 **3,178,989 行、66 列、26 个 row group 的逐条 L2 快照**，包含 Word 的全部 62 个业务字段和 4 个导入元数据字段。此前 240 行、35 列汇总表的描述已失效；当前 adapter 为 `l2_snapshots`。每行是行情观测，不是逐笔成交或委托记录。
 
 实际源业务字段使用全大写，Word 的驼峰名称和 OCR 拼写不能直接用作物理列名。映射须显式声明、校验类型与冲突，不通过猜测自动纠正任意输入列名。
 
@@ -37,11 +62,11 @@ POC 的下游使用场景、文件清单、入口字段和发布条件以 [DELIV
 
 `available_time`、逐条 `ingested_time`、交易所 `source_sequence` 没有源字段；`session_id` 由确认的交易日历和日内会话规则共同派生。必须保留 `availability_unverified`，允许显式 `research_only` 模式。`ingest_run_id` 不能解析成每条行情的可用时刻，`source_row` 只能做来源定位和稳定回放顺序，不能赋予交易所序号含义。标准化及隔离记录都保留原 Parquet 文件 hash、row group/行位置，以及上述上游血缘字段。
 
-`CONTINUESIGN` 仅为额外标签，不能覆盖 `SYMBOL`；源文件名也不能覆盖记录中的 `SYMBOL` / `product`。同合约同时间可以来自不同连续合约源文件，重复处理必须比较业务内容并保留来源。POC 不合并去重：无可靠交易所序号的重复事件键组全部隔离，报告重复或冲突；不能任取最后一条。
+`CONTINUESIGN` 仅为额外标签，不能覆盖 `SYMBOL`；源文件名也不能覆盖记录中的 `SYMBOL` / `product`。同合约同时间可以来自不同连续合约源文件，重复处理必须比较业务内容并保留来源。重复事件键仍为 `(MARKET, SYMBOL, TRADINGDATE, TRADINGTIME)`；载荷一致性比较 62 个 L2 字段及 `product`，排除 `source_file`、`source_row`、`ingest_run_id` 这三个来源定位字段。POC 不合并去重：无可靠交易所序号的重复事件键组全部隔离，报告重复或冲突；不能任取最后一条。
 
 ## 样本实测基线
 
-[样本核验结果](../../references/part-0.profile.json) 记录全文件统计、复现脚本、工具版本及输入 hash。这里只描述该单文件，不将其当作全量约 30GB 数据的完整性结论。实测结果和待实现的验收检查分开，不能据此宣布本阶段已实现。
+[样本核验结果](../../references/part-0.profile.json) 记录全文件统计、复现脚本、工具版本及输入 hash。这里只描述该单文件，不将其当作上述全量分区数据的完整性结论。实测结果和待实现的验收检查分开，不能据此宣布本阶段已实现。
 
 | 项目 | 全文件实测结果 |
 |---|---|
@@ -58,7 +83,7 @@ POC 的下游使用场景、文件清单、入口字段和发布条件以 [DELIV
 
 以上计数以原文件行作为观察单位，未清洗或去重；零计数仅适用于列出的条件。未核验完整业务内容重复/冲突、累计量与增量对账、全五档有效性或已确认日历下的交易时段。样本中存在 09:29 和 15:24 的记录，不能仅按常规连续交易时段截断；需查明集合竞价、盘后状态或源发布规则后分类。
 
-逐条快照已经具备盘口计算所需字段；通过报价、时间和会话检查后可向后续 Stage 提供 mid、spread、深度与快照代理特征。交易日历已有 Marketdata API 来源，仍需确认所选 calendar_id 和日内会话规则；tick size、合约乘数、金额单位、零值/哨兵规则和发布机制分别记录确认状态。对 `SETTLEPRICE` / `CLOSEPRICE` 等零值，不可直接视为有效价格或据此隔离整行正常盘口；日终字段是否盘中已知需单独核实。
+逐条快照已经具备盘口计算所需字段；通过报价、时间和会话检查后可向后续 Stage 提供 mid、spread、深度与快照代理特征。交易日历已有本地 DuckDB 与 Marketdata API 访问方式，已有当前数据范围内的 calendar_id 适用性及日内会话来源证据，运行时仍需验证版本、范围并冻结快照；tick size、合约乘数、金额单位、零值/哨兵规则和发布机制分别记录确认状态。对 `SETTLEPRICE` / `CLOSEPRICE` 等零值，不可直接视为有效价格或据此隔离整行正常盘口；日终字段是否盘中已知需单独核实。
 
 ## 标准必需/可选字段
 

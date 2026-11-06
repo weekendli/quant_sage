@@ -6,14 +6,18 @@
 
 **产品闭环：**
 
-`Raw Dataset → Data Passport → Primitives → Statistical Atlas / Baselines → Feature Grammar → Events & Regimes → Phenomena → Hypotheses → Discovery Cube → Falsification → Knowledge Registry / Next Experiment`
+`Raw Dataset → Data Passport → Primitives → Business Features / Time Windows → Statistical Features / Atlas / Baselines → Events & Regimes → Phenomena → Hypotheses → Discovery Cube → Falsification → Knowledge Registry / Next Experiment`
 
 不要把它误实现为传统技术指标批量生产器，或只输出回测收益的 AutoML 平台。首先建设 Market Observatory，在没有未来收益标签的情况下发现有解释价值的统计现象；随后才引入预测目标做条件搜索和验证。
+
+## 当前实施范围
+
+优先交付 Step 02–05 的 Study / Feature / FeatureSet / Run 数据与特征探索闭环；字段见 [domain.detail.md](domain.detail.md)，执行范围见 [WORKFLOW_STAGES.md](WORKFLOW_STAGES.md)。Step 02 复用已冻结 onboarding 数据；Step 03–05 按显式组合计算和复用 FeatureResult，人工/agent 追加 Review 后推进。以下完整产品闭环是后续路线图，完整 Atlas、条件 baseline、events/regimes/phenomena 不作为当前画像 Run 的前置。实现仍逐个 stage 验收。
 
 ## 技术默认
 
 - Python 3.11+；优先 `polars` lazy/streaming、`duckdb` 查询 Parquet、`pyarrow` 处理 schema；`numpy/scipy/statsmodels/scikit-learn` 用于统计；`ruptures` 可作为可选变化点组件。
-- 数据以 Parquet 分区存储，不要求一次性读入 30GB。元数据与实验索引可用 SQLite；算法产物保存为 Parquet + JSON/YAML manifest。
+- 数据以 Parquet 按真实合约/交易日分区存储，不要求一次性读入 30GB。元数据、运行与结果索引统一使用 DuckDB；算法产物保存为 Parquet + JSON/YAML manifest。单 owner 进程及恢复设计见 [IMPLEMENTATION_DESIGN.md](IMPLEMENTATION_DESIGN.md)。
 - 工作流引擎 v1 使用本地 DAG + 进程内/进程池执行，**不必先部署 Airflow/Prefect/K8s**。预留执行器接口，但不要引入不必要基础设施。
 - CLI 使用 `typer` 或 `argparse`；结构化配置 YAML + Pydantic schema；测试使用 pytest；日志 JSON/结构化日志。
 - 代码应有明确包边界，`core/` 不依赖任何具体期货合约；市场特定逻辑通过 schema mapping、calendar 与 adapters 注入。
@@ -23,8 +27,8 @@
 1. **Workflow Engine**：有向无环任务、缓存、幂等、重跑、检查点、失败恢复、血缘、任务状态。
 2. **Dataset Onboarding**：原始合约/行情接入、字段映射、交易时段、质量检查、契约完整性审计。
 3. **Research Dimensions & Primitives**：自动识别与人工审定的变量族、时间尺度、跨合约依赖；按时间基准构造基础可观测量。
-4. **Baseline / Atlas**：正常条件分布、季节性、统计指纹、异常度评分和参考对照。
-5. **Feature Grammar**：可组合、类型安全、无未来信息泄漏的算子 DSL/AST 与注册表。
+4. **Business Features / Time Windows**：从 primitives 计算固定业务公式、合法 space/size/lookback 组合与时间窗口，注册、校验和持久化；typed AST 可作为内部表达，不依赖统计阶段。
+5. **Statistical Features / Atlas / Baselines**：对选定业务特征及 primitives 计算原单位描述、catch22/tsfeatures、正常条件分布、异常度和参考对照；区分 trailing 与事后 summary。
 6. **Event Detector**：极端、预测残差、背离、变化点事件，去重、冷却、可审计。
 7. **Regime Detector**：规则状态、聚类/HMM 可选、线上过滤概率和状态稳定性评估。
 8. **Phenomenon Discovery**：发现并登记值得解释的现象，保留来源和反例。
@@ -52,8 +56,8 @@ quantsage_discovery/
   core/{types,workflow,artifacts,registry,calendar,split}.py
   ingest/{readers,schema,quality,align}.py
   primitives/{catalog,builders}.py
+  features/{catalog,windows,compiler}.py
   atlas/{fingerprint,baselines,dependencies}.py
-  grammar/{ast,operators,compiler}.py
   detectors/{events,regimes,phenomena}.py
   hypotheses/{generators,models}.py
   discovery/{cube,search}.py

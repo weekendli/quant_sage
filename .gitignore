@@ -1,2 +1,8 @@
 .DS_Store
 *.parquet
+artifacts/
+.pytest_cache/
+__pycache__/
+.ruff_cache/
+*.egg-info/
+.venv/

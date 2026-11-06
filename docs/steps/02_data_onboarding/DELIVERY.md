@@ -6,6 +6,12 @@
 
 Step 03 只接收一个已成功发布的 `onboarding.json` 引用，通过其中的 artifact refs 找到数据与元数据；不重新解析原始文件，不访问实时日历 API。POC 暂不产生训练特征、mid/spread/OBI、成交量 bar 或跨合约宽表，这些由下游按本契约计算。
 
+## 原始数据入口
+
+数据位置与可运行查询示例见 [data.md](../../data.md)。原始行情根目录为 `/data/marketdata-backup/futures/treasury_futures/parquet/l2_snapshot/v1`，按 `year=YYYY/month=MM/part-0.parquet` 存放。POC 先使用 `year=2026/month=01/part-0.parquet`，通过 Python / DuckDB `read_parquet` 读取；全量处理时冻结实际选取的文件清单及 hash，不把分区目录日期当作逐行时间范围证明。源清单还保存 source_format、行数、Parquet row group 数和实际行边界；CSV 的物理 row group 信息为不适用。原始文件和相邻 `_manifest.json`、`_quality.json` 只读使用，上游质量记录不替代本阶段的验证。
+
+2026-11-02 核验发现 79 个 Parquet、5,903,156,058 字节、footer 行数合计 257,407,377；这是当次输入清单，不表示全量业务质量或本阶段已验收。
+
 ## 下游使用场景与必要交付
 
 | 下游场景 | 必要数据与规则 | 缺少条件时的行为 |
@@ -34,12 +40,14 @@ onboard/<data_snapshot_id>/<config_hash>/
 | `onboarding.json` | 唯一入口；内嵌最小 DatasetPassport、QualityReport、分区索引和各文件的 ArtifactManifest。POC 不要求另写重复的 Passport/Quality 文件 |
 | `quotes/...` | 有效记录的标准化长表，逐条快照，不重采样、不隐式填充；按实际合约和交易日分区 |
 | `quarantine/...` | 未进入 quotes 的记录，保留来源与原因；无异常时仍生成有固定 schema 的零行 Parquet |
-| `calendar.parquet` | Marketdata API 返回并冻结的所选交易日历；字段至少为 calendar_id:string、trade_date:date32，键为两者组合 |
+| `calendar.parquet` | 从本地只读 DuckDB catalog 或 Marketdata API 获取并冻结的所选交易日历；字段至少为 calendar_id:string、trade_date:date32，键为两者组合 |
 | `session_rules.json` | 用于当前数据区间和品种的日内会话规则、时区、有效期、来源与版本；交易日列表不能替代它 |
 
 入口文件自身的 ArtifactManifest 由工作流在成功发布后记录，不放入入口文件自身。每个 Parquet 文件都在 ArtifactManifest 中记录 schema_version、URI、content_hash、row_count 和时间范围。分区索引记录 exchange、instrument_id、trade_date、row_count、event_time_min/max 和文件引用；行数及分区列须与实际文件一致。POC 限定单一 exchange=CFFEX，其他市场另配适配器。
 
 ## 行情表复用源 schema 的方式
+
+后续管理适配器接受用户提供的版本化行情 metadata，按 `market_metadata_ref` 绑定 tick_size/单位/生效日期/来源。补充 metadata 创建 DataSource 新版本，仍引用本交付的行情与入口，不改写冻结文件。成交增量未验证和对账不一致标记仅作警告，不单独导致禁算或 NA。推荐从隔离引用与覆盖报告派生缺口证据，供下游区分真实缺失、无更新与正常休市；规则见 [实施设计 §6.4](../../IMPLEMENTATION_DESIGN.md#64-缺少行情的推荐处理机制)。
 
 从已有 JSON 的 `sample.fields` 按以下确定性规则推导输出 schema，不另手写 62 个业务字段的类型：
 
@@ -49,9 +57,10 @@ onboard/<data_snapshot_id>/<config_hash>/
 
 | 新增列 | Arrow 类型与空值 | 约定 |
 |---|---|---|
-| `record_id` | string，非空 | 固定为 sha256(raw_file_sha256 + ":" + 十进制 raw_row_index)，UTF-8 编码；重跑稳定，不当交易所序号 |
-| `raw_file_sha256` | string，非空 | 输入 Parquet 的内容 hash；区别于上游 source_file |
+| `record_id` | string，非空 | 固定为 sha256(raw_file_sha256 + ":" + 十进制 raw_row_index)，UTF-8 编码，输出不带前缀的 64 位小写十六进制；重跑稳定，不当交易所序号 |
+| `raw_file_sha256` | string，非空 | 输入文件内容 hash，不带前缀的 64 位小写十六进制；区别于上游 source_file；ArtifactRef.content_hash 和 inputs.raw_files[].sha256 则使用 sha256: 前缀 |
 | `raw_row_index` | int64，非空 | 文件内零起算绝对行号；与文件 hash 组合可定位原记录 |
+| `raw_row_group_index` | int32，可空 | Parquet 中按实际 footer 边界确定的零起算 row group；CSV 无此物理概念，保存 null 并在源清单声明 source_format |
 | `session_id` | string，非空 | 由 calendar_id、trade_date、会话规则中的 segment_id 组成；不同连续会话使用不同 ID |
 | `available_time` | timestamp[us, UTC]，可空 | 本次源没有此字段，统一为 null；未知状态在 Passport 记录，不在时间列写字符串 unknown |
 | `quality_flags` | list<string>，非空 | 无标记时为空列表；至少支持深档位无效、日终字段未验证、成交增量未验证三类标记，规则编号随配置冻结 |
@@ -62,9 +71,19 @@ onboard/<data_snapshot_id>/<config_hash>/
 
 ## Marketdata 日历依赖
 
-服务地址为 `https://192.168.1.102/marketdata-api/`。使用用户提供的受信任 LAN 服务，客户端通过 CA 文件验证 HTTPS；CA 路径是运行配置，不硬编码服务器本地路径。公共证书的服务端分发源为 `/home/jianl/ops/marketdata-api/server-ca.crt`。仓库当前没有该 CA 或 client.py，本次仅定义接入约定，未实测 API。
+本机入口为 `/data/marketdata/catalog/duckdb/current.json`：读取 `database` 并相对 `/data/marketdata` 定位数据库，使用 `duckdb.connect(..., read_only=True)`，查询 `reference.calendars`。当次 release 为 `db-restructure-full-v16`，实际引用 `/data/marketdata/canonical/reference/calendars/v3/layout=l1/part-3024-001.parquet`；不要硬编码 release 或把目录中所有 Parquet 合并读取。目录内另一个文件包含相同交易日键，全目录 glob 会使日期重复。
 
-日历获取流程：
+2026-11-02 本地与 API 核验均仅发现 `CN_STOCK`，4,055 个交易日，覆盖 2010-01-04 至 2026-09-11；后续 [独立公告核验](../../references/cffex_calendar_evidence.md) 已确认其在 2020-01-02 至 2026-07-31 的日期集合与 CFFEX 一致，共 1,594 个交易日；仅对该区间成立，保留源 calendar_id，不改名为虚构的 CFFEX ID。`reference.trading_sessions` 和 `reference.settlement_calendars` 是空占位 view，只有 `_empty` 列。本次有边界的日历适用性和独立会话规则已记录在 [证据 JSON](../../../configs/reference/cffex_calendar_evidence.json)；实现必须在运行时校验并冻结这些依赖后才能发布 READY。日历与源数据比较得到的 7 个无记录交易日须列入 QualityReport，不得删除日历日期掩盖缺口。
+
+LAN API 地址为 `https://192.168.1.102/marketdata-api/`，表为 `marketdata.reference.calendars`。客户端通过 CA 文件验证 HTTPS；CA 路径是运行配置。公共证书的服务端分发源为 `/home/jianl/ops/marketdata-api/server-ca.crt`，可选客户端为同目录 `client.py`，均不在仓库内。上述日期的 HTTPS health 和日历聚合查询已返回 HTTP 200，release 与本地一致且未截断；这是数据访问核验，不是 Stage 02 实现验收。
+
+本地日历获取流程：
+
+1. 解析并固定 current.json 所指的数据库、release、database manifest 和 view 实际依赖的 Parquet 文件；处理期间 release 变化须重新获取，不能混用版本。
+2. 发现并确认适用于 CFFEX 的 calendar_id，按输入 TRADINGDATE 区间参数化查询 `reference.calendars`，稳定排序；校验类型、组合键唯一和完整覆盖。
+3. 冻结 calendar.parquet，记录 provider=local_duckdb、SQL、params、区间、release、所选源文件及 hash、抓取时间、行数与输出 hash。不得绕过独立会话规则验证。
+
+API 日历获取流程：
 
 1. 调用 GET health，保存返回的 release；通过 POST query 执行只读 SELECT。先列出 `marketdata.reference.calendars` 中实际存在的 calendar_id，确认适用于 CFFEX 国债期货的 ID，不照搬示例 CN_STOCK 或猜测存在 CFFEX。
 2. 按 calendar_id 与输入交易日期上下界参数化查询，稳定排序。至少覆盖源 TRADINGDATE 的完整区间；若会话规则涉及相邻自然日，额外覆盖相应日期。
@@ -87,7 +106,7 @@ WHERE calendar_id = ? AND trade_date >= ? AND trade_date <= ?
 ORDER BY calendar_id, trade_date
 ```
 
-用户提供的 API 说明只证明交易日表可查询，没有提供日内时段表的名称和字段。如果 API 中可发现适用的会话表，则查询并固化其结果；否则使用明确来源、经确认并随交付保存的 session_rules.json。规则至少包含 version、timezone、source_refs，以及各产品/有效日期区间对应的 segment_id、起止本地时间、边界包含方式、自然日与交易日关系。09:29、15:24 等样本记录必须有明确分类，不能凭样本最早/最晚时间反推交易时段。每条保留记录只匹配一个会话；未知会话行进入隔离，全部无匹配或规则缺失则阻断交付。
+当前已发现的 trading_sessions view 没有实际会话数据。如果后续 catalog / API 提供经确认适用的会话表，则查询并固化其结果；否则使用明确来源、经确认并随交付保存的 session_rules.json。规则至少包含 version、timezone、source_refs，以及各产品/有效日期区间对应的 segment_id、起止本地时间、边界包含方式、自然日与交易日关系。09:29、15:24 等样本记录必须有明确分类，不能凭样本最早/最晚时间反推交易时段。每条保留记录只匹配一个会话；未知会话行进入隔离，全部无匹配或规则缺失则阻断交付。
 
 ## onboarding.json 的最小字段
 
@@ -97,7 +116,7 @@ ORDER BY calendar_id, trade_date
 | `run_id`, `stage_run_id`, `config_hash`, `code_revision`, `split_id` | 工作流提供的稳定引用；不填虚构 ID，独立验证使用显式 fixture manifest |
 | `data_snapshot_id` | 沿用 bootstrap 的原始输入快照 ID；输出版本由输入 snapshot、配置 hash、stage 版本、冻结日历/会话规则 hash 和产物 hash 区分 |
 | `status` | READY / READY_WITH_WARNINGS；失败不发布此成功入口，失败诊断由 stage run 保存 |
-| `inputs` | 输入 ArtifactRef 列表、源 schema_ref/hash、有效 mapping、source_timezone、calendar 查询与快照来源、session rules 引用 |
+| `inputs` | 输入 ArtifactRef 列表、源 schema_ref/hash、有效 mapping、source_timezone、calendar provider、release、查询、所选源文件/hash 与快照来源、session rules 引用 |
 | `passport` | asset_class=government_bond_futures、exchange、products、instruments、日期范围、分区数、行数、字段语义引用、availability_status、research_only、未确认事项 |
 | `passport.instrument_metadata` | 按 exchange+instrument_id 记录 tick_size、contract_multiplier、price_unit、turnover_unit；值允许 null，每项保留来源或 unknown 原因，禁止猜测单位和乘数 |
 | `passport.input_constraints` | 哪些字段可进入盘中特征、哪些仅供审计；增量可信度、深档位有效性等条件供 Step 03 决定能力启用与禁用 |
@@ -106,12 +125,16 @@ ORDER BY calendar_id, trade_date
 | `artifact_manifests` | quotes、quarantine、calendar、session_rules 文件的公共 ArtifactManifest；包含原始输入血缘，并共享 data_snapshot_id；不包含入口文件自身以避免 hash 循环 |
 | `warnings` | 机读 code 与说明；至少表达 UNKNOWN_AVAILABILITY 和未确认元数据 |
 
+引用结构固定为：`artifacts.quotes` 和 `artifacts.quarantine` 是 ArtifactRef 数组，`artifacts.calendar` 和 `artifacts.session_rules` 是单个 ArtifactRef。每个引用含独立的 `manifest_uri`；`partitions[].artifact_ref` 引用对应的 quotes 文件。`artifact_manifests` 是按稳定输出 alias 索引的完整 ArtifactManifest 对象映射，覆盖上述数据依赖，不包含入口自身。`warnings` 使用 `{code, message}` 对象数组。
+
+`inputs.raw_files` 保存每个输入文件的 URI、`sha256:<hex>`、字节数、行数、日期范围及 source_format；Parquet 还保存实际 row group 数和边界。来源清单与研究拆分在工作流启动前冻结为预检产物，用真实内容派生 data_snapshot_id / split_id，再由 bootstrap 复核。此次仅执行 onboarding，未指定研究拆分时明确冻结 unassigned_research_only 状态，禁止拟合和假设检验，不编造 train / development / holdout 日期。
+
 质量规则 outcome 使用 PASS / WARN / FAIL / NOT_EVALUATED / NOT_APPLICABLE。未检查与不适用不得写成命中数为零的 PASS。QualityReport 的无效记录数按行去重，规则命中数允许一行命中多条规则，两者不混为分母。
 
 ## POC 发布与记录对账
 
-- POC 不合并重复记录。没有可靠交易所序号的重复事件键 `(exchange, instrument_id, trade_date, event_time)`，组内全部行隔离并标记重复或冲突，避免任取一条；含真实序号的其他适配器另定契约。以后引入合并去重时再增加多来源映射表。
-- quarantine 固定包含原始 66 列、record_id、raw_file_sha256、raw_row_index、reason_codes:list<string>。每条输入只写入 quotes 或 quarantine 之一，每行可包含多个原因，满足 `input_rows = accepted_rows + quarantined_rows`。
+- POC 不合并重复记录。没有可靠交易所序号的重复事件键 `(exchange, instrument_id, trade_date, event_time)`，组内全部行隔离并标记重复或冲突，避免任取一条；含真实序号的其他适配器另定契约。重复载荷指纹比较 62 个 L2 字段和 `product`，不比较 `source_file`、`source_row`、`ingest_run_id` 这三个来源定位字段。以后引入合并去重时再增加多来源映射表。
+- quarantine 固定包含原始 66 列、record_id、raw_file_sha256、raw_row_index、raw_row_group_index、reason_codes:list<string>。每条输入只写入 quotes 或 quarantine 之一，每行可包含多个原因，满足 `input_rows = accepted_rows + quarantined_rows`。
 - 缺必要列、类型不兼容、时区无法解释、日历依赖/会话规则无效、hash/行数对账失败属于阻断错误，不发布成功入口。逐行无效时间、非交易日、无法分类会话和无效一档盘口进入隔离；无可用记录时保存诊断并阻断下游。
 - POC 默认允许存在已隔离坏行，以 READY_WITH_WARNINGS 发布剩余有效记录，同时公开隔离比例；若配置了更严格比例阈值则执行该阈值。缺可用时间允许 research_only；若日后关闭该模式则必须阻断。
 - 文件先写临时位置，校验 schema、hash、行数、会话和来源后，最后原子发布 onboarding.json。失败和未完成目录不能供 Step 03 使用。空输入记录为显式 skipped/empty 诊断，不伪造 READY 数据集。

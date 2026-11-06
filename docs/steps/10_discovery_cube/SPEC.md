@@ -8,7 +8,7 @@
 
 - **F: Features / Event-based signals**。可为数值变量、符号事件、跨合约 residual、motif score；有 Registry 引用。
 - **C: Conditions / Regimes**。可为合约/交易时段/流动性/波动/活跃度/在线状态，必须在实验起点已知；不能由未来 outcome 定义。
-- **H: Horizons**。如 30s、1m、5m、30m，也可按 100 updates 等 event-time horizon，但不同时间基准不可无标注混用。
+- **H: Horizons**。这是未来 impact/outcome horizon，独立于 Step 04 的业务 lookback L 和 Step 05 的统计窗口 W，不得将过去 `mid_move_ticks` 冒充未来 outcome。如 30s、1m、5m、30m，也可按 100 updates 等 event-time horizon，但不同时间基准不可无标注混用。
 
 ## Candidate Cell schema
 
@@ -58,4 +58,4 @@ status: planned
 - 将测试集标签任意改写不改变 Discovery 阶段生成的候选列表。
 - Search budget 达到上限可稳定终止，重跑同样 seed/config 输出一致。
 
-**前置**：09；**下一步**：11。
+**前置**：04、05、06、07、09；**下一步**：11。

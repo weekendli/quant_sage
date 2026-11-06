@@ -1,109 +1,115 @@
-# Example configuration / desired contract; no adapter implementation exists yet.
-# Targets raw L2 fields documented in references/gov_bond_l2.schema.md.
-# Physical names verified against references/part-0.parquet (3,178,989 rows, 66 columns).
-# Calendar provider is Marketdata LAN API; calendar ID and intraday sessions need confirmation.
-# This is government bond FUTURES L2 data, not cash-bond quotes.
-project: quantsage_empirical_discovery
-seed: 42
+# Step 02–05 target management model: illustrative excerpts, NOT current CLI schema.
+# IDs/templates below illustrate future catalog records; do not execute as production config.
+# Generated hashes/resolved_items/artifact manifests are omitted here; required at freeze/submit.
+# Existing research_batch_v1 runtime/demo remains unchanged (see Step 01 RESEARCH_BATCH_RESULTS.md).
+# Step 02 already has verified onboarding outputs: bind actual immutable refs, do not re-ingest
+# merely because dates or feature selections change. Use actual verified source coverage/split.
 storage:
-  raw_uri: ./data/raw
-  artifacts_uri: ./artifacts
-  registry_uri: ./artifacts/registry.sqlite
-  temporary_uri: ./artifacts/tmp
-resources:
-  memory_limit: 8GB
-  threads: 4
-  max_concurrent_stages: 2
-  max_feature_candidates: 40
-  max_cube_cells_per_hypothesis: 24
-input:
-  format: parquet
-  schema_ref: ./docs/references/gov_bond_l2.schema.json
-  adapter: l2_snapshots # desired adapter; implementation does not exist yet
-  exchange_timezone: Asia/Shanghai
-  instrument_column: SYMBOL
-  timestamp_column: TRADINGTIME
-  available_timestamp_column: null # flag unknown; do not silently assume zero latency
-  timestamp_kind: exchange_event_time
-  columns:
-    trade_date: TRADINGDATE
-    exchange: MARKET
-    bid_price_1: BUYPRICE01
-    bid_price_2: BUYPRICE02
-    bid_price_3: BUYPRICE03
-    bid_price_4: BUYPRICE04
-    bid_price_5: BUYPRICE05
-    ask_price_1: SELLPRICE01
-    ask_price_2: SELLPRICE02
-    ask_price_3: SELLPRICE03
-    ask_price_4: SELLPRICE04
-    ask_price_5: SELLPRICE05
-    bid_size_1: BUYVOLUME01
-    bid_size_2: BUYVOLUME02
-    bid_size_3: BUYVOLUME03
-    bid_size_4: BUYVOLUME04
-    bid_size_5: BUYVOLUME05
-    ask_size_1: SELLVOLUME01
-    ask_size_2: SELLVOLUME02
-    ask_size_3: SELLVOLUME03
-    ask_size_4: SELLVOLUME04
-    ask_size_5: SELLVOLUME05
-    last_price: LASTPRICE
-    volume: TOTALVOLUME
-    turnover: TOTALAMOUNT
-    open_interest: TOTALPOSITION
-    volume_increment: TRADEVOLUME
-    turnover_increment: TRADEAMOUNT
-    source_event_unix_ms: UNIX
-  volume_semantics: cumulative_day # TOTALVOLUME; TRADEVOLUME is already incremental
-  allow_research_only_without_availability: true
-market:
-  asset_class: government_bond_futures
-  calendar_id: null # discover real IDs and confirm the CFFEX futures calendar; never default to CN_STOCK
-  calendar_source:
-    provider: marketdata_api
-    base_url: https://192.168.1.102/marketdata-api/
-    ca_file: null # configure the trusted server-ca.crt path on this client
-    table: marketdata.reference.calendars
-    max_rows: 10000 # reject truncation or fetch complete bounded pages
-    freeze_snapshot: true
-  session_rules_ref: null # verified API-derived or explicit versioned intraday rules; dates alone are insufficient
-  max_quote_staleness: 2s
-  prevent_cross_session_fill: true
-splits:
-  method: chronological
-  # Placeholder bounds do not cover the January 2026 sample.
-  # Replace with a validated SplitManifest before executing; do not invent a holdout from this file.
-  train: {start: '2024-01-01', end: '2024-06-30'}
-  development: {start: '2024-07-01', end: '2024-09-30'}
-  final_holdout: {start: '2024-10-01', end: '2024-12-31'}
-  embargo: 30m
-research:
-  mode: observatory
-  time_bases: [clock_time, quote_event_count]
-  windows: [10s, 30s, 1m, 5m]
-  quote_event_windows: [20, 100]
-  outcomes: [mid_return, future_realized_volatility]
-  horizons: [1m, 5m, 30m]
-baselines:
-  fit_on: train
-  group_by: [instrument_id, session_bucket]
-  min_group_observations: 200
-  quantiles: [0.01, 0.05, 0.5, 0.95, 0.99]
-events:
-  enabled_detectors: [extreme, divergence, online_change]
-  cooldown: 30s
-  session_reset: true
-regimes:
-  enabled: [rule_based]
-  forbid_future_smoothed_states: true
-cube:
-  search: adaptive_beam
-  maximum_ast_depth: 3
-  max_cells_per_hypothesis: 24
-validation:
-  unit: event_episode
-  bootstrap_unit: trading_day
-  holdout_access: frozen_only
-  multiple_testing: bh_fdr
-  preserve_search_ledger: true
+  registry_backend: duckdb
+  registry_uri: ./workspace/research.duckdb
+  artifacts_uri: ./workspace/artifacts
+  access_mode: single_owner # target implementation
+  partition_policy: trade_date_v1 # exchange + instrument_id + exchange trade_date
+
+# User-supplied immutable market metadata; illustrative schema, not an actual source record.
+market_metadata:
+  metadata_id: example_cffex_metadata
+  version: 1
+  provided_by: {kind: human, id: example_user}
+  source: user_provided_contract_rules
+  tick_rules:
+    - product: T
+      valid_from: '2015-03-20'
+      valid_to: null # exclusive bound when specified
+      tick_size: '0.005'
+      unit: quoted_price_unit
+# Registration generates hash/ref and binds it to a new DataSource version.
+# Native interval-volume verification/reconciliation flags remain warnings.
+
+study:
+  study_id: liquidity_structure
+  revision: 1
+  objective: 比较选定 OBI 和容量序列的统计结构，逐步扩展时间与指标
+  source_refs: [example_l2_source@1]
+  feature_set_refs: [liquidity_profile@1]
+  default_feature_set_ref: liquidity_profile@1
+  backlog:
+    - {feature_set_ref: liquidity_profile@1, item_id: obi_short, priority: 1, state: active, reason: 方向描述}
+    - {feature_set_ref: liquidity_profile@1, item_id: coverage_short, priority: 2, state: active, reason: 容量描述}
+    - {feature_set_ref: liquidity_profile@1, item_id: obi_statistics, priority: 1, state: active, reason: 结构画像}
+  status: active
+  limits:
+    allowed_steps: [3, 4, 5]
+    # Replace with source-authorized, timezone-aware bounds; no future-response labels.
+    scope:
+      instruments: [T2406]
+      start: '2024-03-04T00:00:00+08:00'
+      end: '2024-04-01T00:00:00+08:00'
+    max_work_units: 1000
+    max_concurrency: 2
+
+feature_set:
+  feature_set_id: liquidity_profile
+  version: 1
+  name: OBI 与容量的初步画像
+  description: 只选择下列合法组合；不展开所有 size、窗口和统计量
+  status: draft # freeze resolves exact Feature refs, versions and hashes before submission
+  items:
+    - item_id: obi_short
+      recipe:
+        template_ref: example_l2.obi@1
+        step: 4
+        parameters: {space: d0}
+        lookback: 3s
+    - item_id: coverage_short
+      recipe:
+        template_ref: example_l2.min_coverage@1
+        step: 4
+        parameters:
+          space: d1
+          size: {value: 0.50, unit: fraction_of_snapshot_depth_ref} # source q50, NOT 50 lots
+        lookback: 1m
+    - item_id: obi_statistics
+      recipe:
+        template_ref: example_trailing_statistics@1
+        step: 5
+        input: {item_id: obi_short}
+        profile_window: 30m
+        sampling:
+          time_basis: clock_time
+          interval: 1s
+          evaluation_stride: 60s
+          grid_origin: session_start
+          max_age: 5s # illustrative frozen choice, not an empirically validated optimum
+          alignment: backward_asof
+          on_gap: invalidate_window
+          on_session_boundary: reset
+        validity: {min_samples: 256, allow_partial_window: false, emit_subsegment_summaries: false}
+        metrics:
+          - c22.CO_f1ecac@pycatch22-0.4.5
+          - c22.CO_FirstMin_ac@pycatch22-0.4.5
+
+# Proposal only: FeatureSet must be frozen and exact source/split refs resolved first.
+run_proposal:
+  study_id: liquidity_structure
+  study_revision: 1
+  feature_set_ref: liquidity_profile@1
+  selected_item_ids: [obi_short, obi_statistics]
+  # coverage_short remains in backlog; not selected does not imply it never ran historically.
+  source_refs: [example_l2_source@1]
+  split_ref: example_exploration_split@1
+  scope:
+    instruments: [T2406]
+    start: '2024-03-04T00:00:00+08:00'
+    end: '2024-03-09T00:00:00+08:00'
+  allowed_steps: [3, 4, 5]
+  missing_dependencies: compute_within_allowed_steps
+  reuse_policy: verified_only
+  budget: {max_work_units: 1000, max_concurrency: 2}
+  request_key: liquidity_first_week_01
+  # Parent/adopted reviews added on subsequent proposals; no fabricated result/review here.
+
+# B: same frozen FeatureSet, extend dates within allowed source coverage, create new Run.
+# C: new FeatureSet version with selected tsfeatures, freeze exact backend/parameter versions,
+#    then run on the same dates. Reuse unchanged Feature definitions and matching results.
+# No outcomes/impact_horizons/events/regimes/condition-baseline fitting in this core example.

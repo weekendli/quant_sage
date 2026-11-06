@@ -1,5 +1,11 @@
 # Step 06 — Event Detector
 
+## 输入来源与时间契约
+
+Step 04 提供业务 features，Step 05 提供选定序列的 trailing catch22/tsfeatures 及条件 baseline；联合使用原单位水平与统计结构，按真实可用时间对齐。完整 session 的回顾画像不得作为该 session 内的在线输入。分别记录业务 lookback L、统计窗口 W 与采样/评估步长，避免把重叠窗口造成的相关性当独立证据；此处不使用未来 impact H。
+
+Events / regimes 默认并行；只有显式声明时，过去已检测事件的 trailing 摘要才作为 regimes 的额外输入，不能使用事件最终峰值、最终持续时长或未来状态。
+
 ## 目标
 
 将连续 Feature 或 Baseline residual 转成**可复现的离散事件**。Event 是某时点已可判定的特征变化，不必先证明具有预测力。
@@ -56,4 +62,4 @@ quality_flags: []
 - 缺时戳、跨 session、stale quote、低样本条件基准应返回标志或不触发。
 - Registry 能回答某事件何时触发、为何触发、由哪些原始字段和 baseline 推导。
 
-**前置**：05；**下一步**：08。
+**前置**：04、05；**下一步**：08。

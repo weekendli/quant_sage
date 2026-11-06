@@ -1,7 +1,7 @@
 # Codex Implementation Task — Step 10: Discovery Cube
 
 **Milestone:** M6  
-**Upstream dependencies:** Step 05, Step 07, Step 09  
+**Upstream dependencies:** Step 04, Step 05, Step 06, Step 07, Step 09
 **Scope:** implement only this stage, not downstream algorithms.
 
 ## Required reading

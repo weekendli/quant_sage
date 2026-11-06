@@ -1,0 +1,39 @@
+project: quantsage_step02_full_79months
+seed: 0
+
+storage:
+  artifacts_uri: /data/src/quant_sage/artifacts/step02
+  registry_uri: /data/src/quant_sage/artifacts/step02/registry.sqlite
+  preflight_uri: /data/src/quant_sage/artifacts/step02/preflight
+  temporary_uri: /data/src/quant_sage/artifacts/step02/tmp
+
+resources:
+  memory_limit: 2GB
+  threads: 4
+  max_concurrent_stages: 1
+  temporary_uri: /data/src/quant_sage/artifacts/step02/tmp
+  preflight_memory_limit: 1GB
+  preflight_threads: 2
+
+input:
+  adapter: l2_snapshots
+  path_glob: /data/marketdata-backup/futures/treasury_futures/parquet/l2_snapshot/v1/year=*/month=*/part-0.parquet
+  source_timezone: Asia/Shanghai
+  source_schema_path: /data/src/quant_sage/docs/references/gov_bond_l2.schema.json
+
+calendar:
+  provider: local_duckdb
+  calendar_id: CN_STOCK
+  data_root: /data/marketdata
+  evidence_path: /data/src/quant_sage/configs/reference/cffex_calendar_evidence.json
+
+sessions:
+  evidence_path: /data/src/quant_sage/configs/reference/cffex_calendar_evidence.json
+
+onboarding:
+  max_quarantine_rate: 0.10
+
+workflow:
+  stages:
+    - quantsage_discovery.stages.bootstrap:BootstrapStage
+    - quantsage_discovery.stages.onboard:OnboardStage
