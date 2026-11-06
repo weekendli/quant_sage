@@ -1,6 +1,6 @@
 # Study / FeatureSet / Run 分步执行规格
 
-版本：`research_execution_v1`。日期：2026-11-06。状态：**待执行**。
+版本：`research_execution_v1`。日期：2026-11-06。状态：**部分实施：01-A 已完成；01-B 及后续待执行**。
 
 本文把需求和实施设计拆成可逐项交付的工程增量，范围为 Step 01 管理/执行扩展和 Step 02–05 数据/特征闭环。创建本文不表示任何增量已实现，也不启动代码实现、依赖安装或全量数据重跑。
 
@@ -66,7 +66,7 @@ Step 02 已有冻结交付：复用入口和 manifests，不修改其历史状�
 
 ## 4. 执行顺序与状态
 
-ID 是本文的工程增量编号，不是新增 workflow stage。所有状态初始为待执行；实现时在第 8 节记录证据。
+ID 是本文的工程增量编号，不是新增 workflow stage。初始状态为待执行；当前进度与实际证据见第 8 节。
 
 | 顺序 | 增量 | 所属 Step | 依赖 | 交付里程碑 |
 |---|---|---|---|---|
@@ -325,8 +325,13 @@ python -m ruff check quantsage_discovery scripts tests
 
 进度从“待执行”进入“进行中”，证据齐备后“完成”；依赖不足时记录具体阻断原因。本文创建时所有增量均为待执行，历史 Step 01/02 完成不等于本表增量完成。
 
+| 增量 | 当前状态 | 验收证据 |
+|---|---|---|
+| 01-A | COMPLETE，2026-11-06 | [DuckDB 增量结果](steps/01_workflow_engine/RESULTS.md#01-a-duckdb-registry-与嵌入-owner2026-11-06)；13 项 Registry 测试及全套 136 项通过，Ruff 通过 |
+| 01-B–01-G、02-A、03-A/B、04-A、05-A/B、E2E | NOT_STARTED | 本次不实施其他增量 |
+
 可复制以下提示，每次只替换一个 ID：
 
 > 阅读仓库 AGENTS.md、docs/AGENTS.md、docs/EXECUTION_SPEC.md、docs/IMPLEMENTATION_DESIGN.md、docs/COMMON_CONTRACTS.md，以及增量 `<ID>` 所属阶段的 SPEC/IMPLEMENT/VERIFY。核对上游真实完成证据，仅实现 `<ID>` 的可运行增量，不提前实现其他 stage。复用既有接口，按 schema 序列化并验证产物；没有真实上游时用合规 fixture 开发，但不冒充真实集成完成。遵守本规格已确认的 metadata、警告、缺口、端点、交易日分区和固定版本规则；不猜测 F07/F08 聚合。执行对应验收与回归，记录实际命令/结果/产物/限制并同步状态，然后停止在本增量边界。
 
-建议首次执行 ID：**01-A**。F07/F08 的聚合规则仍为唯一明确保留的业务公式待决项；最大 age/间隔阈值和真实 metadata 是执行配置输入，tsfeatures 精确版本锁是 05-B 交付项，不要求在开始 01-A 前确定。
+下一执行 ID：**01-B**。F07/F08 的聚合规则仍为唯一明确保留的业务公式待决项；最大 age/间隔阈值和真实 metadata 是执行配置输入，tsfeatures 精确版本锁是 05-B 交付项，不要求在开始 01-B 前确定。

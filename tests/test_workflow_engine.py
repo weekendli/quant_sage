@@ -189,6 +189,7 @@ def test_partition_resume_after_real_process_exit_restores_scopes(tmp_path):
     }
     original_a = before[0]["artifacts"].get("result") or before[1]["artifacts"].get("result")
     assert original_a is not None
+    registry.close()
 
     resumed = subprocess.run(
         [sys.executable, "-m", "quantsage_discovery.cli", "run", "--resume", run_id,
@@ -198,6 +199,7 @@ def test_partition_resume_after_real_process_exit_restores_scopes(tmp_path):
     assert resumed.returncode == 0, resumed.stderr + resumed.stdout
     result = json.loads(resumed.stdout)
     assert result["status"] == "SUCCEEDED"
+    registry = Registry(registry_path)
     after = registry.get_run_stages(run_id)
     assert len(after) == 2
     assert {row["partition"]["item"]: row["status"] for row in after} == {

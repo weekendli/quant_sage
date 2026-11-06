@@ -1,18 +1,25 @@
-"""SQLite run ledger and structured JSONL operation logs."""
+"""DuckDB-backed run ledger with a process-local, single-threaded database owner."""
 
 from __future__ import annotations
 
+import fcntl
+import hashlib
 import json
-import sqlite3
+import os
+import queue
 import threading
 import uuid
-from collections.abc import Mapping
+import weakref
+from collections.abc import Callable, Mapping
+from concurrent.futures import Future
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Self, TypeVar
+
+import duckdb
 
 from .artifacts import artifact_path
-from .errors import WorkflowError
+from .errors import RegistrySchemaError, WorkflowError, WorkspaceBusyError
 from .types import ArtifactRef, StageStatus
 from .utils import canonical_json
 
@@ -32,6 +39,70 @@ _TRANSITIONS = {
     StageStatus.CACHED: {StageStatus.RUNNING, StageStatus.BLOCKED},
     StageStatus.SUCCEEDED: {StageStatus.RUNNING, StageStatus.BLOCKED},
 }
+
+
+_SCHEMA_V1_DDL = """
+CREATE SEQUENCE stage_run_order_seq START 1;
+CREATE SEQUENCE stage_state_event_seq START 1;
+CREATE TABLE runs (
+    run_id VARCHAR PRIMARY KEY,
+    config_json VARCHAR NOT NULL,
+    config_hash VARCHAR NOT NULL,
+    data_snapshot_id VARCHAR,
+    split_id VARCHAR,
+    as_of_cutoff VARCHAR,
+    code_revision VARCHAR NOT NULL,
+    graph_json VARCHAR NOT NULL,
+    status VARCHAR NOT NULL,
+    created_at VARCHAR NOT NULL,
+    updated_at VARCHAR NOT NULL
+);
+CREATE TABLE stage_runs (
+    stage_run_id VARCHAR PRIMARY KEY,
+    run_id VARCHAR NOT NULL,
+    stage_name VARCHAR NOT NULL,
+    stage_version VARCHAR NOT NULL,
+    partition_json VARCHAR NOT NULL,
+    status VARCHAR NOT NULL,
+    cache_key VARCHAR,
+    config_hash VARCHAR,
+    code_revision VARCHAR,
+    attempt INTEGER NOT NULL DEFAULT 0,
+    started_at VARCHAR,
+    finished_at VARCHAR,
+    duration_ms DOUBLE,
+    inputs_json VARCHAR NOT NULL DEFAULT '{}',
+    artifacts_json VARCHAR NOT NULL DEFAULT '{}',
+    metrics_json VARCHAR NOT NULL DEFAULT '{}',
+    warnings_json VARCHAR NOT NULL DEFAULT '[]',
+    error_json VARCHAR,
+    source_stage_run_id VARCHAR,
+    cache_valid INTEGER NOT NULL DEFAULT 1,
+    registry_order BIGINT NOT NULL UNIQUE DEFAULT nextval('stage_run_order_seq')
+);
+CREATE INDEX stage_run_cache_idx
+    ON stage_runs(stage_name, stage_version, cache_key, cache_valid, status);
+CREATE INDEX stage_run_run_idx ON stage_runs(run_id, stage_name);
+CREATE TABLE stage_state_events (
+    event_id BIGINT PRIMARY KEY DEFAULT nextval('stage_state_event_seq'),
+    stage_run_id VARCHAR NOT NULL,
+    state VARCHAR NOT NULL,
+    attempt INTEGER NOT NULL,
+    fields_json VARCHAR NOT NULL,
+    created_at VARCHAR NOT NULL
+);
+""".strip()
+
+# v1 is the first supported DuckDB ledger. v2 adds the execution scope already
+# required by the existing workflow API; SQLite files are never imported.
+_MIGRATION_V2_SQL = "ALTER TABLE runs ADD COLUMN execution_json VARCHAR DEFAULT '{}'"
+_SCHEMA_V1_CHECKSUM = hashlib.sha256(_SCHEMA_V1_DDL.encode("utf-8")).hexdigest()
+_SCHEMA_V2_CHECKSUM = hashlib.sha256(
+    f"{_SCHEMA_V1_CHECKSUM}\n{_MIGRATION_V2_SQL}".encode()
+).hexdigest()
+_SCHEMA_CHECKSUMS = {1: _SCHEMA_V1_CHECKSUM, 2: _SCHEMA_V2_CHECKSUM}
+_CURRENT_SCHEMA_VERSION = 2
+_T = TypeVar("_T")
 
 
 class StructuredLogger:
@@ -58,149 +129,333 @@ class StructuredLogger:
             stream.flush()
 
 
+class _DatabaseOwner:
+    """Own one DuckDB connection and execute every request on its owner thread."""
+
+    def __init__(self, path: Path):
+        self.path = path
+        self.pid = os.getpid()
+        self._queue: queue.Queue[tuple[Callable[[duckdb.DuckDBPyConnection], Any] | None,
+                                      Future[Any]]] = queue.Queue()
+        self._ready = threading.Event()
+        self._startup_error: BaseException | None = None
+        self._closed = False
+        self._lifecycle_lock = threading.Lock()
+        self._references = 0
+        self._connection: duckdb.DuckDBPyConnection | None = None
+        self._thread = threading.Thread(
+            target=self._serve, name=f"quantsage-duckdb-{path.stem}", daemon=True
+        )
+        # One active catalog per workspace, even if a caller changes its filename.
+        lock_path = path.parent / ".quantsage-owner.lock"
+        self._lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_CLOEXEC, 0o600)
+        os.fchmod(self._lock_fd, 0o600)
+        try:
+            fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            os.close(self._lock_fd)
+            raise WorkspaceBusyError(
+                f"WORKSPACE_BUSY: another process owns registry workspace {path.parent}"
+            ) from exc
+        try:
+            self._thread.start()
+            self._ready.wait()
+            if self._startup_error is not None:
+                raise self._startup_error
+            self.call(self._initialize)
+        except BaseException:
+            self._shutdown()
+            raise
+
+    def _serve(self) -> None:
+        try:
+            self._connection = duckdb.connect(str(self.path))
+        except BaseException as exc:  # noqa: BLE001 — deliver owner startup errors to the caller
+            self._startup_error = exc
+            self._ready.set()
+            return
+        self._ready.set()
+        while True:
+            operation, future = self._queue.get()
+            if operation is None:
+                try:
+                    self._connection.close()
+                    future.set_result(None)
+                except BaseException as exc:  # noqa: BLE001 — wake the waiting close caller
+                    future.set_exception(exc)
+                return
+            try:
+                self._connection.execute("BEGIN TRANSACTION")
+                result = operation(self._connection)
+                self._connection.execute("COMMIT")
+                future.set_result(result)
+                del result
+            except BaseException as exc:  # noqa: BLE001 — transfer all failures through the Future
+                try:
+                    self._connection.execute("ROLLBACK")
+                except duckdb.Error:
+                    pass
+                future.set_exception(exc)
+            finally:
+                # Do not retain a callback's Registry handle while the queue is idle.
+                del operation, future
+
+    def call(self, operation: Callable[[duckdb.DuckDBPyConnection], _T]) -> _T:
+        if os.getpid() != self.pid:
+            raise WorkflowError(
+                "Registry owner was inherited across fork; create a new Registry in the child process"
+            )
+        if threading.current_thread() is self._thread:
+            raise WorkflowError("Registry operations cannot be nested on the owner thread")
+        future: Future[_T] = Future()
+        with self._lifecycle_lock:
+            if self._closed:
+                raise WorkflowError("Registry is closed")
+            self._queue.put((operation, future))
+        return future.result()
+
+    def _initialize(self, connection: duckdb.DuckDBPyConnection) -> None:
+        tables = {
+            row[0] for row in connection.execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = 'main' AND table_type = 'BASE TABLE'"
+            ).fetchall()
+        }
+        if "schema_migrations" not in tables:
+            if tables:
+                names = ", ".join(sorted(tables))
+                raise RegistrySchemaError(
+                    "DuckDB file has ledger tables but no schema_migrations record; "
+                    f"refusing unversioned database ({names})"
+                )
+            connection.execute(
+                "CREATE TABLE schema_migrations ("
+                "version INTEGER PRIMARY KEY, checksum VARCHAR NOT NULL, "
+                "applied_at VARCHAR NOT NULL, duckdb_version VARCHAR NOT NULL)"
+            )
+            for statement in _SCHEMA_V1_DDL.split(";"):
+                if statement.strip():
+                    connection.execute(statement)
+            self._record_schema_version(connection, 1)
+            self._apply_migration_v2(connection)
+            return
+
+        rows = connection.execute(
+            "SELECT version, checksum FROM schema_migrations ORDER BY version"
+        ).fetchall()
+        if not rows:
+            raise RegistrySchemaError("DuckDB registry has an empty schema_migrations table")
+        versions = [int(row[0]) for row in rows]
+        current = versions[-1]
+        if current > _CURRENT_SCHEMA_VERSION:
+            raise RegistrySchemaError(f"unsupported DuckDB registry schema version: {current}")
+        if versions != list(range(1, versions[-1] + 1)):
+            raise RegistrySchemaError(f"DuckDB registry schema history is not contiguous: {versions}")
+        for version, checksum in rows:
+            version = int(version)
+            expected = _SCHEMA_CHECKSUMS.get(version)
+            if expected is None:
+                raise RegistrySchemaError(f"unsupported DuckDB registry schema version: {version}")
+            if checksum != expected:
+                raise RegistrySchemaError(
+                    f"DuckDB registry schema checksum mismatch for version {version}"
+                )
+        if current == 1:
+            self._apply_migration_v2(connection)
+
+    @staticmethod
+    def _record_schema_version(connection: duckdb.DuckDBPyConnection, version: int) -> None:
+        connection.execute(
+            "INSERT INTO schema_migrations(version, checksum, applied_at, duckdb_version) "
+            "VALUES (?, ?, ?, ?)",
+            (version, _SCHEMA_CHECKSUMS[version], utc_now(), duckdb.__version__),
+        )
+
+    def _apply_migration_v2(self, connection: duckdb.DuckDBPyConnection) -> None:
+        connection.execute(_MIGRATION_V2_SQL)
+        self._record_schema_version(connection, 2)
+
+    def _shutdown(self) -> None:
+        if self.pid != os.getpid():
+            # The child cannot use or shut down a thread/connection copied by fork.
+            if self._closed:
+                return
+            self._closed = True
+            try:
+                os.close(self._lock_fd)
+            except OSError:
+                pass
+            return
+        with self._lifecycle_lock:
+            if self._closed:
+                return
+            self._closed = True
+            future: Future[Any] = Future()
+            running = self._thread.is_alive()
+            if running:
+                self._queue.put((None, future))
+        try:
+            if running:
+                try:
+                    future.result()
+                finally:
+                    self._thread.join()
+        finally:
+            try:
+                fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
+            finally:
+                os.close(self._lock_fd)
+
+
+_OWNERS: dict[Path, _DatabaseOwner] = {}
+_OWNERS_LOCK = threading.RLock()
+
+
+def _release_owner(path: Path, owner: _DatabaseOwner) -> None:
+    with _OWNERS_LOCK:
+        if owner.pid != os.getpid():
+            if _OWNERS.get(path) is owner:
+                _OWNERS.pop(path, None)
+            owner._shutdown()
+            return
+        owner._references -= 1
+        if owner._references <= 0 and _OWNERS.get(path) is owner:
+            _OWNERS.pop(path, None)
+            owner._shutdown()
+
+
 class Registry:
+    """Persistent workflow ledger; a shared owner serializes all DB calls."""
+
+    schema_version = _CURRENT_SCHEMA_VERSION
+
     def __init__(self, path: Path | str):
         self.path = Path(path).expanduser().resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._initialize()
+        with _OWNERS_LOCK:
+            owner = _OWNERS.get(self.path)
+            if owner is not None and owner.pid != os.getpid():
+                raise WorkflowError(
+                    "Registry owner was inherited across fork; create a new Registry in the child process"
+                )
+            if owner is None:
+                try:
+                    owner = _DatabaseOwner(self.path)
+                except duckdb.Error as exc:
+                    raise RegistrySchemaError(f"Cannot open DuckDB registry {self.path}: {exc}") from exc
+                _OWNERS[self.path] = owner
+            owner._references += 1
+        self._owner = owner
+        self._closed = False
+        self._finalizer = weakref.finalize(self, _release_owner, self.path, owner)
 
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path, timeout=30)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA busy_timeout = 30000")
-        return connection
+    def close(self) -> None:
+        """Release this handle; the owner closes after its final handle is released."""
+        if self._closed:
+            return
+        self._closed = True
+        self._finalizer()
 
-    def _initialize(self) -> None:
-        with self._connect() as connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS runs (
-                    run_id TEXT PRIMARY KEY,
-                    config_json TEXT NOT NULL,
-                    config_hash TEXT NOT NULL,
-                    data_snapshot_id TEXT,
-                    split_id TEXT,
-                    as_of_cutoff TEXT,
-                    code_revision TEXT NOT NULL,
-                    graph_json TEXT NOT NULL,
-                    execution_json TEXT NOT NULL DEFAULT '{}',
-                    status TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS stage_runs (
-                    stage_run_id TEXT PRIMARY KEY,
-                    run_id TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
-                    stage_name TEXT NOT NULL,
-                    stage_version TEXT NOT NULL,
-                    partition_json TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    cache_key TEXT,
-                    config_hash TEXT,
-                    code_revision TEXT,
-                    attempt INTEGER NOT NULL DEFAULT 0,
-                    started_at TEXT,
-                    finished_at TEXT,
-                    duration_ms REAL,
-                    inputs_json TEXT NOT NULL DEFAULT '{}',
-                    artifacts_json TEXT NOT NULL DEFAULT '{}',
-                    metrics_json TEXT NOT NULL DEFAULT '{}',
-                    warnings_json TEXT NOT NULL DEFAULT '[]',
-                    error_json TEXT,
-                    source_stage_run_id TEXT,
-                    cache_valid INTEGER NOT NULL DEFAULT 1
-                );
-                CREATE INDEX IF NOT EXISTS stage_run_cache_idx
-                    ON stage_runs(stage_name, stage_version, cache_key, cache_valid, status);
-                CREATE INDEX IF NOT EXISTS stage_run_run_idx ON stage_runs(run_id, stage_name);
-                CREATE TABLE IF NOT EXISTS stage_state_events (
-                    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    stage_run_id TEXT NOT NULL REFERENCES stage_runs(stage_run_id),
-                    state TEXT NOT NULL,
-                    attempt INTEGER NOT NULL,
-                    fields_json TEXT NOT NULL,
-                    created_at TEXT NOT NULL
-                );
-                """
-            )
-            run_columns = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
-            if "execution_json" not in run_columns:
-                connection.execute("ALTER TABLE runs ADD COLUMN execution_json TEXT NOT NULL DEFAULT '{}' ")
+    def __enter__(self) -> Self:
+        if self._closed:
+            raise WorkflowError("Registry is closed")
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        self.close()
+
+    def _call(self, operation: Callable[[duckdb.DuckDBPyConnection], _T]) -> _T:
+        if self._closed:
+            raise WorkflowError("Registry is closed")
+        return self._owner.call(operation)
 
     def create_run(self, *, run_id: str, config: Mapping[str, Any], config_hash: str,
                    data_snapshot_id: str | None, split_id: str | None,
                    as_of_cutoff: str | None, code_revision: str,
                    graph: Mapping[str, Any], execution: Mapping[str, Any] | None = None) -> None:
         timestamp = utc_now()
+
+        def insert(connection: duckdb.DuckDBPyConnection) -> None:
+            connection.execute(
+                """INSERT INTO runs(run_id, config_json, config_hash, data_snapshot_id,
+                   split_id, as_of_cutoff, code_revision, graph_json, execution_json,
+                   status, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (run_id, canonical_json(config), config_hash, data_snapshot_id, split_id,
+                 as_of_cutoff, code_revision, canonical_json(graph), canonical_json(execution or {}),
+                 "RUNNING", timestamp, timestamp),
+            )
+
         try:
-            with self._connect() as connection:
-                connection.execute(
-                    """INSERT INTO runs(run_id, config_json, config_hash, data_snapshot_id,
-                       split_id, as_of_cutoff, code_revision, graph_json, execution_json,
-                       status, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (run_id, canonical_json(config), config_hash, data_snapshot_id, split_id,
-                     as_of_cutoff, code_revision, canonical_json(graph), canonical_json(execution or {}),
-                     "RUNNING", timestamp, timestamp),
-                )
-        except sqlite3.IntegrityError as exc:
+            self._call(insert)
+        except duckdb.ConstraintException as exc:
             raise WorkflowError(f"run_id already exists: {run_id}") from exc
 
     def get_run(self, run_id: str) -> dict[str, Any] | None:
-        with self._connect() as connection:
-            row = connection.execute("SELECT * FROM runs WHERE run_id=?", (run_id,)).fetchone()
+        def select(connection: duckdb.DuckDBPyConnection):
+            return _fetchone(connection, "SELECT * FROM runs WHERE run_id=?", (run_id,))
+
+        row = self._call(select)
         if row is None:
             return None
-        result = dict(row)
         for key in ("config_json", "graph_json", "execution_json"):
-            result[key.removesuffix("_json")] = json.loads(result[key])
-        return result
+            row[key.removesuffix("_json")] = json.loads(row[key])
+        return row
 
     def finish_run(self, run_id: str, status: str) -> None:
-        with self._connect() as connection:
-            connection.execute("UPDATE runs SET status=?, updated_at=? WHERE run_id=?",
-                               (status, utc_now(), run_id))
+        def update(connection: duckdb.DuckDBPyConnection) -> None:
+            connection.execute(
+                "UPDATE runs SET status=?, updated_at=? WHERE run_id=?",
+                (status, utc_now(), run_id),
+            )
+
+        self._call(update)
 
     def ensure_stage_run(self, *, run_id: str, stage_name: str, stage_version: str,
                          partition: Mapping[str, str], stage_run_id: str,
                          cache_key: str | None, config_hash: str | None,
                          code_revision: str | None, force_new: bool = False) -> dict[str, Any]:
         partition_json = canonical_json(dict(partition))
-        with self._connect() as connection:
-            row = connection.execute(
-                "SELECT * FROM stage_runs WHERE run_id=? AND stage_name=? AND partition_json=? ORDER BY rowid DESC LIMIT 1",
+
+        def ensure(connection: duckdb.DuckDBPyConnection) -> dict[str, Any]:
+            if _fetchone(connection, "SELECT run_id FROM runs WHERE run_id=?", (run_id,)) is None:
+                raise WorkflowError(f"unknown run_id: {run_id}")
+            row = _fetchone(
+                connection,
+                """SELECT * FROM stage_runs WHERE run_id=? AND stage_name=? AND partition_json=?
+                   ORDER BY registry_order DESC LIMIT 1""",
                 (run_id, stage_name, partition_json),
-            ).fetchone()
+            )
             if row is None or force_new:
                 connection.execute(
                     """INSERT INTO stage_runs(stage_run_id, run_id, stage_name, stage_version,
                        partition_json, status, cache_key, config_hash, code_revision)
                        VALUES(?,?,?,?,?,?,?,?,?)""",
                     (stage_run_id, run_id, stage_name, stage_version, partition_json,
-                     StageStatus.PENDING, cache_key, config_hash, code_revision),
+                     StageStatus.PENDING.value, cache_key, config_hash, code_revision),
                 )
-                row = connection.execute("SELECT * FROM stage_runs WHERE stage_run_id=?",
-                                         (stage_run_id,)).fetchone()
-        return self._decode_stage_row(row)
+                row = _fetchone(connection,
+                                "SELECT * FROM stage_runs WHERE stage_run_id=?", (stage_run_id,))
+            return Registry._decode_stage_row(row)
+
+        return self._call(ensure)
 
     def get_stage_run(self, run_id: str, stage_name: str,
                       partition: Mapping[str, str]) -> dict[str, Any] | None:
-        with self._connect() as connection:
-            row = connection.execute(
-                "SELECT * FROM stage_runs WHERE run_id=? AND stage_name=? AND partition_json=? ORDER BY rowid DESC LIMIT 1",
-                (run_id, stage_name, canonical_json(dict(partition))),
-            ).fetchone()
+        row = self._call(lambda connection: _fetchone(
+            connection,
+            """SELECT * FROM stage_runs WHERE run_id=? AND stage_name=? AND partition_json=?
+               ORDER BY registry_order DESC LIMIT 1""",
+            (run_id, stage_name, canonical_json(dict(partition))),
+        ))
         return self._decode_stage_row(row) if row else None
 
     @staticmethod
-    def _decode_stage_row(row: sqlite3.Row | Mapping[str, Any]) -> dict[str, Any]:
+    def _decode_stage_row(row: Mapping[str, Any]) -> dict[str, Any]:
         result = dict(row)
+        result.pop("registry_order", None)
         for key in ("partition_json", "inputs_json", "artifacts_json", "metrics_json", "warnings_json"):
             result[key.removesuffix("_json")] = json.loads(result[key])
-        if result.get("error_json"):
-            result["error"] = json.loads(result["error_json"])
-        else:
-            result["error"] = None
+        result["error"] = json.loads(result["error_json"]) if result.get("error_json") else None
         return result
 
     def set_stage_running(self, stage_run_id: str, *, cache_key: str, config_hash: str,
@@ -230,7 +485,8 @@ class Registry:
         self._transition(
             stage_run_id,
             status,
-            artifacts_json=canonical_json({key: ref.to_dict() for key, ref in sorted((artifacts or {}).items())}),
+            artifacts_json=canonical_json({key: ref.to_dict()
+                                           for key, ref in sorted((artifacts or {}).items())}),
             metrics_json=canonical_json(metrics or {}),
             warnings_json=canonical_json(list(warnings)),
             duration_ms=duration_ms,
@@ -245,80 +501,105 @@ class Registry:
                          error_json=canonical_json(error), duration_ms=duration_ms,
                          finished_at=utc_now())
 
-    def set_stage_status(self, stage_run_id: str, status: StageStatus, *, error: Mapping[str, Any] | None = None) -> None:
+    def set_stage_status(self, stage_run_id: str, status: StageStatus,
+                         *, error: Mapping[str, Any] | None = None) -> None:
         self._transition(stage_run_id, status,
                          error_json=canonical_json(error) if error else None,
-                         finished_at=utc_now() if status in {StageStatus.SKIPPED, StageStatus.BLOCKED} else None)
+                         finished_at=utc_now() if status in {StageStatus.SKIPPED,
+                                                             StageStatus.BLOCKED} else None)
 
     def _transition(self, stage_run_id: str, status: StageStatus, **fields: Any) -> int:
-        with self._connect() as connection:
-            row = connection.execute("SELECT status, attempt FROM stage_runs WHERE stage_run_id=?",
-                                     (stage_run_id,)).fetchone()
+        def transition(connection: duckdb.DuckDBPyConnection) -> int:
+            row = _fetchone(connection,
+                            "SELECT status, attempt FROM stage_runs WHERE stage_run_id=?",
+                            (stage_run_id,))
             if row is None:
                 raise WorkflowError(f"unknown stage_run_id: {stage_run_id}")
             current = StageStatus(row["status"])
             if status not in _TRANSITIONS[current]:
-                raise WorkflowError(f"invalid stage status transition {current.value} -> {status.value}")
+                raise WorkflowError(
+                    f"invalid stage status transition {current.value} -> {status.value}"
+                )
+            next_attempt = int(row["attempt"])
             if fields.pop("attempt_increment", 0):
-                fields["attempt"] = int(row["attempt"]) + 1
+                next_attempt += 1
+                fields["attempt"] = next_attempt
             fields["status"] = status.value
             assignments = ", ".join(f"{key}=?" for key in fields)
-            values = list(fields.values()) + [stage_run_id]
-            connection.execute(f"UPDATE stage_runs SET {assignments} WHERE stage_run_id=?", values)
+            connection.execute(
+                f"UPDATE stage_runs SET {assignments} WHERE stage_run_id=?",
+                [*fields.values(), stage_run_id],
+            )
             connection.execute(
                 "INSERT INTO stage_state_events(stage_run_id,state,attempt,fields_json,created_at) "
-                "VALUES(?,?,?,?,?)", (stage_run_id, status.value,
-                                       int(fields.get('attempt', row['attempt'])),
-                                       canonical_json(fields), utc_now()))
-            return int(fields.get("attempt", row["attempt"]))
+                "VALUES(?,?,?,?,?)",
+                (stage_run_id, status.value, next_attempt, canonical_json(fields), utc_now()),
+            )
+            return next_attempt
+
+        return self._call(transition)
 
     def get_stage_run_by_id(self, stage_run_id: str) -> dict[str, Any] | None:
-        with self._connect() as connection:
-            row = connection.execute('SELECT * FROM stage_runs WHERE stage_run_id=?',
-                                     (stage_run_id,)).fetchone()
+        row = self._call(lambda connection: _fetchone(
+            connection, "SELECT * FROM stage_runs WHERE stage_run_id=?", (stage_run_id,)
+        ))
         return self._decode_stage_row(row) if row else None
 
     def get_stage_events(self, stage_run_id: str) -> list[dict[str, Any]]:
-        with self._connect() as connection:
-            rows = connection.execute(
-                'SELECT * FROM stage_state_events WHERE stage_run_id=? ORDER BY event_id',
-                (stage_run_id,)).fetchall()
-        return [{**dict(row), 'fields': json.loads(row['fields_json'])} for row in rows]
+        rows = self._call(lambda connection: _fetchall(
+            connection,
+            "SELECT * FROM stage_state_events WHERE stage_run_id=? ORDER BY event_id",
+            (stage_run_id,),
+        ))
+        return [{**row, "fields": json.loads(row["fields_json"])} for row in rows]
 
     def find_cache(self, stage_name: str, stage_version: str, cache_key: str) -> dict[str, Any] | None:
-        with self._connect() as connection:
-            row = connection.execute(
-                """SELECT * FROM stage_runs WHERE stage_name=? AND stage_version=? AND cache_key=?
-                   AND cache_valid=1 AND status='SUCCEEDED' ORDER BY finished_at DESC LIMIT 1""",
-                (stage_name, stage_version, cache_key),
-            ).fetchone()
+        row = self._call(lambda connection: _fetchone(
+            connection,
+            """SELECT * FROM stage_runs WHERE stage_name=? AND stage_version=? AND cache_key=?
+               AND cache_valid=1 AND status='SUCCEEDED' ORDER BY finished_at DESC, registry_order DESC
+               LIMIT 1""",
+            (stage_name, stage_version, cache_key),
+        ))
         return self._decode_stage_row(row) if row else None
 
     def invalidate_cache(self, stage_names: set[str]) -> int:
         if not stage_names:
             return 0
         placeholders = ",".join("?" for _ in stage_names)
-        with self._connect() as connection:
-            cursor = connection.execute(
-                f"UPDATE stage_runs SET cache_valid=0 WHERE stage_name IN ({placeholders})",
+
+        def invalidate(connection: duckdb.DuckDBPyConnection) -> int:
+            rows = connection.execute(
+                f"UPDATE stage_runs SET cache_valid=0 WHERE stage_name IN ({placeholders}) "
+                "RETURNING stage_run_id",
                 sorted(stage_names),
-            )
-            return int(cursor.rowcount)
+            ).fetchall()
+            return len(rows)
+
+        return self._call(invalidate)
 
     def invalidate_stage_run(self, stage_run_id: str) -> None:
-        with self._connect() as connection:
-            connection.execute("UPDATE stage_runs SET cache_valid=0 WHERE stage_run_id=?", (stage_run_id,))
+        def invalidate(connection: duckdb.DuckDBPyConnection) -> None:
+            connection.execute(
+                "UPDATE stage_runs SET cache_valid=0 WHERE stage_run_id=?", (stage_run_id,)
+            )
+
+        self._call(invalidate)
 
     def get_run_stages(self, run_id: str) -> list[dict[str, Any]]:
-        with self._connect() as connection:
-            rows = connection.execute("SELECT * FROM stage_runs WHERE run_id=? ORDER BY stage_name, partition_json",
-                                      (run_id,)).fetchall()
+        rows = self._call(lambda connection: _fetchall(
+            connection,
+            "SELECT * FROM stage_runs WHERE run_id=? ORDER BY stage_name, partition_json, registry_order",
+            (run_id,),
+        ))
         return [self._decode_stage_row(row) for row in rows]
 
     def explain_artifact(self, artifact_id: str) -> list[dict[str, Any]]:
+        rows = self._call(lambda connection: _fetchall(
+            connection, "SELECT * FROM stage_runs WHERE status IN ('SUCCEEDED','CACHED') "
+                        "ORDER BY registry_order"
+        ))
         matches = []
-        with self._connect() as connection:
-            rows = connection.execute("SELECT * FROM stage_runs WHERE status IN ('SUCCEEDED','CACHED')").fetchall()
         for row in rows:
             decoded = self._decode_stage_row(row)
             for alias, raw_ref in decoded["artifacts"].items():
@@ -354,6 +635,22 @@ class Registry:
         stages = self.get_run_stages(run_id)
         return {"run_id": run_id, "status": run["status"], "stages": stages,
                 "created_at": run["created_at"], "updated_at": run["updated_at"]}
+
+
+def _fetchone(connection: duckdb.DuckDBPyConnection, sql: str,
+              params: tuple[Any, ...] | list[Any] = ()) -> dict[str, Any] | None:
+    cursor = connection.execute(sql, params)
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    return {description[0]: value for description, value in zip(cursor.description, row, strict=True)}
+
+
+def _fetchall(connection: duckdb.DuckDBPyConnection, sql: str,
+              params: tuple[Any, ...] | list[Any] = ()) -> list[dict[str, Any]]:
+    cursor = connection.execute(sql, params)
+    columns = [description[0] for description in cursor.description]
+    return [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
 
 
 def new_stage_run_id() -> str:

@@ -107,7 +107,7 @@ class WorkflowEngine:
         artifacts_root = Path(storage.get("artifacts_uri", "artifacts")).expanduser()
         if not artifacts_root.is_absolute():
             artifacts_root = (Path.cwd() / artifacts_root).resolve()
-        registry_path = Path(storage.get("registry_uri", artifacts_root / "registry.sqlite")).expanduser()
+        registry_path = Path(storage.get("registry_uri", artifacts_root / "registry.duckdb")).expanduser()
         if not registry_path.is_absolute():
             registry_path = (Path.cwd() / registry_path).resolve()
         self.artifact_store = artifact_store or ArtifactStore(artifacts_root)

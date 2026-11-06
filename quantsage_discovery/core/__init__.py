@@ -6,9 +6,11 @@ from .errors import (
     ArtifactValidationError,
     ConfigError,
     GraphError,
+    RegistrySchemaError,
     StageExecutionError,
     TransientError,
     WorkflowError,
+    WorkspaceBusyError,
 )
 from .registry import Registry, StructuredLogger
 from .types import (
@@ -32,6 +34,7 @@ __all__ = [
     "ConfigError",
     "GraphError",
     "Registry",
+    "RegistrySchemaError",
     "ResourceBudget",
     "RunContext",
     "RunSummary",
@@ -43,4 +46,5 @@ __all__ = [
     "TransientError",
     "WorkflowEngine",
     "WorkflowError",
+    "WorkspaceBusyError",
 ]

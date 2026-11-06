@@ -25,8 +25,8 @@ def _registry_path(config: dict[str, Any] | None, explicit: str | None = None) -
         if value:
             path = Path(value).expanduser()
             return path if path.is_absolute() else (Path.cwd() / path).resolve()
-        return configured_path(config, "artifacts_uri", "artifacts") / "registry.sqlite"
-    return (Path.cwd() / "artifacts" / "registry.sqlite").resolve()
+        return configured_path(config, "artifacts_uri", "artifacts") / "registry.duckdb"
+    return (Path.cwd() / "artifacts" / "registry.duckdb").resolve()
 
 
 def _artifact_root(config: dict[str, Any]) -> Path:
@@ -92,7 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--force-stage", action="append", dest="force_stages")
     run.add_argument("--partition-scope", action="append", dest="partition_scopes",
                      metavar="KEY=VALUE[,KEY=VALUE...]")
-    run.add_argument("--registry", help="registry sqlite path (primarily for --resume)")
+    run.add_argument("--registry", help="DuckDB registry path (primarily for --resume)")
 
     status = subparsers.add_parser("status", help="show persisted run and stage states")
     status.add_argument("--run-id", required=True)
@@ -127,23 +127,30 @@ def _validate_or_plan(args: argparse.Namespace, is_plan: bool) -> int:
         if any(getattr(args, key, None) for key in ('from_stage', 'until_stage', 'only_stages')):
             raise WorkflowError('research_batch targets/allowed_stages replace CLI stage selectors')
         engine = _engine(config)
-        plan = engine.batch_plan()
-        _json(plan if is_plan else {'valid': True, 'graph': plan})
-        return 0
+        try:
+            plan = engine.batch_plan()
+            _json(plan if is_plan else {'valid': True, 'graph': plan})
+            return 0
+        finally:
+            engine.registry.close()
     plugins = load_stage_plugins(config)
     with tempfile.TemporaryDirectory(prefix="quantsage-plan-") as temporary:
-        engine = WorkflowEngine(stages=plugins, config=config,
-                                artifact_store=ArtifactStore(Path(temporary) / "artifacts"),
-                                registry=Registry(Path(temporary) / "registry.sqlite"))
-        graph = engine.plan(from_stage=getattr(args, "from_stage", None),
-                            until_stage=getattr(args, "until_stage", None),
-                            only=getattr(args, "only_stages", None))
-        if is_plan:
-            _json(graph)
-        else:
-            _json({"valid": True, "config_hash": engine.config_digest,
-                   "project": config.get("project"), "stage_count": len(graph["order"]),
-                   "graph": graph})
+        registry = Registry(Path(temporary) / "registry.duckdb")
+        try:
+            engine = WorkflowEngine(stages=plugins, config=config,
+                                    artifact_store=ArtifactStore(Path(temporary) / "artifacts"),
+                                    registry=registry)
+            graph = engine.plan(from_stage=getattr(args, "from_stage", None),
+                                until_stage=getattr(args, "until_stage", None),
+                                only=getattr(args, "only_stages", None))
+            if is_plan:
+                _json(graph)
+            else:
+                _json({"valid": True, "config_hash": engine.config_digest,
+                       "project": config.get("project"), "stage_count": len(graph["order"]),
+                       "graph": graph})
+        finally:
+            registry.close()
     return 0
 
 
@@ -154,38 +161,51 @@ def _run(args: argparse.Namespace) -> int:
     if config is None and not args.resume:
         raise WorkflowError("run requires --config unless --resume is used")
     if args.resume and config is None:
-        registry = _load_registry(args)
-        stored_run = registry.get_run(args.resume)
+        lookup_registry = _load_registry(args)
+        try:
+            stored_run = lookup_registry.get_run(args.resume)
+        finally:
+            lookup_registry.close()
         if stored_run is None:
             raise WorkflowError(f"unknown run_id {args.resume!r}")
         config = stored_run["config"]
     assert config is not None
     registry = _load_registry(args, config)
-    engine = _engine(config, registry=registry)
-    if isinstance(engine, BatchEngine):
-        if any((args.from_stage, args.until_stage, args.only_stages,
-                args.force_stages, args.partition_scopes)):
-            raise WorkflowError('research batches use frozen targets/scope, not CLI stage overrides')
-        result = engine.run_batch(run_id=args.run_id, resume=args.resume)
-        _json(result)
-        return 0 if result['status'] == 'SUCCEEDED' else 1
-    summary = engine.run(
-        config=config,
-        run_id=args.run_id,
-        resume=args.resume,
-        from_stage=args.from_stage,
-        until_stage=args.until_stage,
-        only=args.only_stages,
-        force_stages=args.force_stages,
-        partitions=_partition_scopes(args.partition_scopes),
-    )
-    _json(summary.to_dict())
-    return 0 if summary.status == "SUCCEEDED" else 1
+    try:
+        engine = _engine(config, registry=registry)
+        if isinstance(engine, BatchEngine):
+            if any((args.from_stage, args.until_stage, args.only_stages,
+                    args.force_stages, args.partition_scopes)):
+                raise WorkflowError('research batches use frozen targets/scope, not CLI stage overrides')
+            result = engine.run_batch(run_id=args.run_id, resume=args.resume)
+            _json(result)
+            return 0 if result['status'] == 'SUCCEEDED' else 1
+        summary = engine.run(
+            config=config,
+            run_id=args.run_id,
+            resume=args.resume,
+            from_stage=args.from_stage,
+            until_stage=args.until_stage,
+            only=args.only_stages,
+            force_stages=args.force_stages,
+            partitions=_partition_scopes(args.partition_scopes),
+        )
+        _json(summary.to_dict())
+        return 0 if summary.status == "SUCCEEDED" else 1
+    finally:
+        registry.close()
 
 
 def _inspect(args: argparse.Namespace) -> int:
     config = load_config(args.config) if args.config else None
     registry = _load_registry(args, config)
+    try:
+        return _inspect_registry(args, registry)
+    finally:
+        registry.close()
+
+
+def _inspect_registry(args: argparse.Namespace, registry: Registry) -> int:
     if args.command == "status":
         run = registry.get_run(args.run_id)
         if run and 'research_plan' in run['graph']:

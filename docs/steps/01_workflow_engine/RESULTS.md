@@ -39,3 +39,50 @@ Artifacts carry schema/version, code and config digests, raw snapshot and split 
 ## Scope and limits
 
 Execution is local, with bounded thread concurrency and file-backed artifacts. The engine streams file hashing and passes references rather than data frames; domain plugins receive resource budgets and are responsible for configuring their own DuckDB or Arrow work. This gate uses small serialized fixtures and process failures, not a large-market-data benchmark. The full onboarding performance run belongs to Step 02. Source code digests include uncommitted package and plugin source; resume requires the original code/config/graph and restores the stored selection and partition intent.
+
+## 01-A DuckDB Registry 与嵌入 owner（2026-11-06）
+
+Acceptance: **COMPLETE for increment 01-A only**. The historical engine and onboarding evidence above remains unchanged. Study/FeatureSet/Review and real Step 03–05 computations were not implemented or run in this increment. The next increment is 01-B.
+
+The initial implementation was delegated to GPT-6 Luna with xhigh reasoning. That agent reached its usage limit before running tests; the root agent completed compatibility fixes, lifecycle checks and verification. No test pass is attributed to the interrupted agent.
+
+### Changes and lifecycle
+
+- Registry now uses DuckDB, preserving its public run/stage/status/cache/lineage behavior. New default paths use `registry.duckdb`; explicit paths are passed as supplied, and a filename suffix does not determine database format. There is no historical database import and no frozen data modification.
+- Each resolved database path has one process-local owner thread and connection. Registry calls from scheduler/worker threads are queued and executed in that owner. Same-process handles to that path share it; a shared `.quantsage-owner.lock` in the registry parent directory defines workspace ownership. A second database filename in that same workspace, or a second process, receives `WorkspaceBusyError` with `code=WORKSPACE_BUSY`. Read-only CLI inspection also uses this owner model; running-time RPC queries belong to 01-G.
+- `Registry.close()` and context managers release a handle; the final handle drains queued operations, closes the connection and releases the lock. CLI/onboarding close paths handle normal and error exits. The subprocess resume regression now closes the old owner before starting the next process.
+- Every owner request uses explicit BEGIN/COMMIT/ROLLBACK. State changes and event writes are atomic. Sequences supply explicit stage/event ordering; sequence gaps after rollback are allowed.
+- `schema_migrations` records version, checksum, applied time and DuckDB version. Schema v1 is the base DuckDB ledger; v2 adds execution scope storage. Tests build a serialized v1 fixture, preserve its records through upgrade, and inject failure after DDL/version writes to verify transactional rollback and retry. Future versions and checksum tampering are rejected.
+- Cross-table references are checked explicitly inside the serialized transactions. Foreign keys to mutable stage rows are avoided because indexed status updates otherwise fail when event rows already reference them on the tested DuckDB version. The execution scope column uses a supported ADD COLUMN default; public writes always serialize a non-null object.
+
+Use an explicit lifetime when embedding the registry:
+
+```python
+with Registry(workspace / "research.duckdb") as registry:
+    # Call existing Registry APIs or pass this handle to WorkflowEngine.
+    # All worker calls are marshalled to the owner thread.
+    ...
+```
+
+### Executed verification
+
+Environment: Python 3.12.3, DuckDB 1.5.5, PyArrow 25.0.1, pytest 8.4.2. No dependencies were installed or upgraded. Tests use temporary DuckDB/JSON artifact workspaces, not market data.
+
+```bash
+python -m pytest -q tests/test_registry_duckdb.py --tb=short
+# 13 passed in 1.56s
+python -m pytest -q --tb=short
+# 136 passed in 14.87s
+python -m ruff check quantsage_discovery scripts tests
+# All checks passed!
+```
+
+The full suite includes existing CLI validate/plan/run/status/artifacts/explain behavior, cache/lineage, research batch behavior, real subprocess loss before completion and after artifact publication, and the onboarding regression tests. These are executable regression checks; the full frozen 79-month producer/consumer run was not repeated.
+
+New Registry checks cover fresh/reopened files and canonical path sharing; supported schema upgrade and preserved historical fixture records; future-version/checksum rejection; rollback of both state and event; explicit ordering and latest forced attempt selection; second-process WORKSPACE_BUSY then reopen after release; 24 concurrent run/stage updates through eight calling threads; invalid parent rejection; in-flight request draining; idempotent close and abandoned-handle finalization.
+
+Two independent GPT-6 Luna/xhigh reviews checked Standards and Spec. Their findings (mutation callbacks returning the owner connection internally, and lock scope being per file rather than per workspace) were corrected; both reviewers confirmed their findings addressed. Final checks above ran after those corrections, including different-filename workspace contention tests.
+
+### Limits
+
+This increment supplies local file-backed storage and ownership, not a distributed executor or background RPC service. Queue requests are serialized without a new timeout protocol. Physical schema introspection and arbitrary manual database repair are not provided. Existing frozen source/config/code evidence is preserved; old database files must not be opened as if this were a format migration. Subsequent CLI executions use new workspaces and unchanged public argument forms.

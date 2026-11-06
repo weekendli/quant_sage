@@ -26,12 +26,16 @@ def run_onboarding(
     resolved_path = Path(config["bootstrap"]["resolved_config_path"])
     stages = load_stage_plugins(config)
     artifact_store = ArtifactStore(config["storage"]["artifacts_uri"])
-    registry_path = Path(config["storage"].get("registry_uri", artifact_store.root / "registry.sqlite"))
+    registry_path = Path(config["storage"].get("registry_uri", artifact_store.root / "registry.duckdb"))
     if not registry_path.is_absolute():
         registry_path = (Path.cwd() / registry_path).resolve()
     registry = Registry(registry_path)
-    engine = WorkflowEngine(stages=stages, config=config, artifact_store=artifact_store, registry=registry)
-    summary = engine.run(until_stage=until_stage, run_id=run_id)
+    try:
+        engine = WorkflowEngine(stages=stages, config=config, artifact_store=artifact_store,
+                                registry=registry)
+        summary = engine.run(until_stage=until_stage, run_id=run_id)
+    finally:
+        registry.close()
     result = summary.to_dict()
     result["resolved_config"] = str(resolved_path)
     onboard = result.get("stage_results", {}).get("onboard", [])

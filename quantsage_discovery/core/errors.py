@@ -5,6 +5,20 @@ class WorkflowError(Exception):
     """Base class for workflow contract errors."""
 
 
+class WorkspaceBusyError(WorkflowError):
+    """Another process currently owns the active workspace registry."""
+
+    code = "WORKSPACE_BUSY"
+    retryable = True
+
+
+class RegistrySchemaError(WorkflowError):
+    """The DuckDB registry schema is unsupported or has an invalid checksum."""
+
+    code = "REGISTRY_SCHEMA_INVALID"
+    retryable = False
+
+
 class ConfigError(WorkflowError):
     """Configuration failed validation."""
 
