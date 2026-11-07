@@ -996,6 +996,7 @@ class RunPlanner:
                 node["read_scope"] = {
                     "start": _time_text(read_start), "end": _time_text(node["output_end"]),
                     "session_id": segment["session_id"],
+                    "session_start": _time_text(segment["session_start"]),
                 }
                 if not _contained_by_ranges(study_ranges, segment["instrument_id"],
                                             read_start, node["output_end"], segment["session_id"]):
@@ -1149,6 +1150,7 @@ class RunPlanner:
             read_scope = node.get("read_scope", {
                 "start": _time_text(read_start), "end": _time_text(node["output_end"]),
                 "session_id": segment["session_id"],
+                "session_start": _time_text(segment["session_start"]),
             })
             raw_dependency_scope = node.get("raw_dependency_scope", read_scope)
             partition_scope = {

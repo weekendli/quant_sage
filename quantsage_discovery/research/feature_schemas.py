@@ -31,6 +31,7 @@ _TRUSTED_PROVIDER_KEYS = {
     "builtin.business_windows",
     "builtin.identity",
     "builtin.l2_primitives",
+    "builtin.statistical_windows",
 }
 _PARAM_TYPES = {"string", "integer", "number", "boolean", "object", "array", "decimal", "duration"}
 

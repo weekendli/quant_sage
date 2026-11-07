@@ -72,6 +72,7 @@ from .providers import (
 )
 from .repository import ResearchRepository
 from .schemas import parse_versioned_ref
+from .statistical_windows import compute_statistical_window
 
 _SAFE_PATH_PART = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _DURATION_NS = re.compile(r"^(\d+)ns$")
@@ -298,6 +299,7 @@ class ResearchExecutor:
             },
             "partition_scope": work["partition_scope"],
             "required_history": work["required_history"],
+            "read_scope": work.get("read_scope"),
             "input_result_refs": dependency_identity,
             "implementation": feature.get("implementation", {}),
             "runtime": {
@@ -711,7 +713,8 @@ class ResearchExecutor:
         provider_key = implementation.get("metric_provider_key") or implementation.get("provider_key")
         l2_provider = provider_key == "builtin.l2_primitives"
         business_provider = provider_key == "builtin.business_windows"
-        if l2_provider or business_provider:
+        statistical_provider = provider_key == "builtin.statistical_windows"
+        if l2_provider or business_provider or statistical_provider:
             if l2_provider and input_tables:
                 raise ArtifactValidationError(
                     "Step 03-A L2 primitives do not accept dependency value tables"
@@ -804,10 +807,18 @@ class ResearchExecutor:
                 audit_type = L2_PRIMITIVE_AUDIT_TYPE
                 audit_schema_version = L2_PRIMITIVE_AUDIT_SCHEMA_VERSION
                 audit_columns = list(L2_PRIMITIVE_AUDIT_SCHEMA.names)
-            elif business_provider:
-                business_output = compute_business_window(
-                    feature, input_tables_by_role, work["partition_scope"],
-                )
+            elif business_provider or statistical_provider:
+                if statistical_provider:
+                    business_output = compute_statistical_window(
+                        feature,
+                        input_tables_by_role.get("input"),
+                        work["partition_scope"],
+                        work.get("read_scope") or {},
+                    )
+                else:
+                    business_output = compute_business_window(
+                        feature, input_tables_by_role, work["partition_scope"],
+                    )
                 transformed = business_output.values
                 provider_reasons = business_output.provider_reasons
                 audit_table = business_output.audit

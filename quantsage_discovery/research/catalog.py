@@ -34,6 +34,10 @@ from .feature_schemas import (
     validate_provider,
     validate_template,
 )
+from .statistical_windows import (
+    INPUT_VIEW_POLICY,
+    validate_statistical_input,
+)
 
 _T = TypeVar("_T")
 
@@ -573,6 +577,19 @@ def _resolve_recipe(connection: duckdb.DuckDBPyConnection, feature_set: dict[str
                 )
     if kind == "statistical" and not input_refs:
         raise ResearchValidationError("statistical recipe must resolve one input Feature")
+    if (kind == "statistical"
+            and template.get("source_requirements", {}).get("input_view_policy")
+            == INPUT_VIEW_POLICY):
+        if len(input_refs) != 1:
+            raise ResearchValidationError(
+                "statistical recipe must resolve exactly one whitelisted input Feature"
+            )
+        dependency = (
+            feature_documents[input_refs[0]]
+            if input_refs[0] in feature_documents
+            else _load_feature(connection, input_refs[0])
+        )
+        validate_statistical_input(dependency, [ref for ref, _ in metric_docs])
 
     set_defaults = feature_set.get("defaults", {})
     time_policy = dict(template.get("time_policy", {}))
@@ -607,6 +624,11 @@ def _resolve_recipe(connection: duckdb.DuckDBPyConnection, feature_set: dict[str
             raise ResearchValidationError("step 05 recipe requires sampling interval and evaluation_stride")
         if "axis" not in sampling:
             raise ResearchValidationError("step 05 sampling requires an explicit axis/time_basis")
+        if (template["source_requirements"].get("requires_max_feature_age")
+                and "max_feature_age" not in sampling):
+            raise ResearchValidationError(
+                "step 05 recipe requires sampling.max_feature_age"
+            )
 
     validity = _merge_objects(template.get("validity", {}), set_defaults.get("validity", {}),
                               recipe.get("validity", {}))
