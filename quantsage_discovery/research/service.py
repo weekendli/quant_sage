@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from quantsage_discovery.core.artifacts import ArtifactStore
@@ -97,6 +97,53 @@ class ResearchService:
 
     def recover_runs(self, run_id: str | None = None) -> dict[str, Any]:
         return self._run_executor().recover(run_id)
+
+    def list_results(self, filters: Mapping[str, Any] | None = None, *, limit: int = 100,
+                     cursor: str | None = None, verify: bool = True) -> dict[str, Any]:
+        return self._queries().list_results(filters, limit=limit, cursor=cursor, verify=verify)
+
+    def read_results(self, result_refs: Sequence[str], *, columns: Sequence[str] | None = None,
+                     scope: Mapping[str, Any] | None = None, limit: int = 1000,
+                     cursor: str | None = None) -> dict[str, Any]:
+        return self._queries().read_results(
+            result_refs, columns=columns, scope=scope, limit=limit, cursor=cursor,
+        )
+
+    def study_coverage(self, study_id: str, *, revision: int | None = None,
+                       source_refs: Sequence[str] | None = None,
+                       scope: Mapping[str, Any] | None = None,
+                       feature_set_ref: str | None = None,
+                       item_ids: Sequence[str] | None = None,
+                       verify: bool = True) -> dict[str, Any]:
+        return self._queries().study_coverage(
+            study_id, revision=revision, source_refs=source_refs, scope=scope,
+            feature_set_ref=feature_set_ref, item_ids=item_ids, verify=verify,
+        )
+
+    def add_review(self, document: Mapping[str, Any]) -> dict[str, Any]:
+        return self._queries().add_review(document)
+
+    def list_reviews(self, study_id: str, *, run_id: str | None = None,
+                     result_ref: str | None = None, limit: int = 100,
+                     cursor: str | None = None) -> dict[str, Any]:
+        return self._queries().list_reviews(
+            study_id, run_id=run_id, result_ref=result_ref, limit=limit, cursor=cursor,
+        )
+
+    def compare_runs(self, left_run_id: str, right_run_id: str, *,
+                     scope: Mapping[str, Any] | None = None,
+                     verify: bool = True) -> dict[str, Any]:
+        return self._queries().compare_runs(
+            left_run_id, right_run_id, scope=scope, verify=verify,
+        )
+
+    def _queries(self):
+        from .queries import ResearchQueries
+
+        return ResearchQueries(
+            self._registry, self._repository, self._catalog,
+            ArtifactStore(self._registry.path.parent / "artifacts"),
+        )
 
     def _run_executor(self, *, fault_hook=None):
         from .execution import ResearchExecutor

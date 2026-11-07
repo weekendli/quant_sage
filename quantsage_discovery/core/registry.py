@@ -10,7 +10,7 @@ import queue
 import threading
 import uuid
 import weakref
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import Future
 from datetime import UTC, datetime
 from pathlib import Path
@@ -276,6 +276,22 @@ CREATE INDEX feature_result_health_result_idx ON feature_result_health(result_id
 _SCHEMA_V6_CHECKSUM = hashlib.sha256(
     f"{_SCHEMA_V5_CHECKSUM}\n{_MIGRATION_V6_SQL}".encode()
 ).hexdigest()
+_MIGRATION_V7_SQL = """
+CREATE SEQUENCE research_review_order_seq START 1;
+CREATE TABLE reviews (
+    review_order BIGINT PRIMARY KEY DEFAULT nextval('research_review_order_seq'),
+    review_id VARCHAR NOT NULL UNIQUE,
+    study_id VARCHAR NOT NULL,
+    run_refs_json VARCHAR NOT NULL,
+    result_refs_json VARCHAR NOT NULL,
+    created_at VARCHAR NOT NULL,
+    document_json VARCHAR NOT NULL
+);
+CREATE INDEX research_review_study_idx ON reviews(study_id, review_order);
+""".strip()
+_SCHEMA_V7_CHECKSUM = hashlib.sha256(
+    f"{_SCHEMA_V6_CHECKSUM}\n{_MIGRATION_V7_SQL}".encode()
+).hexdigest()
 _SCHEMA_CHECKSUMS = {
     1: _SCHEMA_V1_CHECKSUM,
     2: _SCHEMA_V2_CHECKSUM,
@@ -283,8 +299,9 @@ _SCHEMA_CHECKSUMS = {
     4: _SCHEMA_V4_CHECKSUM,
     5: _SCHEMA_V5_CHECKSUM,
     6: _SCHEMA_V6_CHECKSUM,
+    7: _SCHEMA_V7_CHECKSUM,
 }
-_CURRENT_SCHEMA_VERSION = 6
+_CURRENT_SCHEMA_VERSION = 7
 _T = TypeVar("_T")
 
 
@@ -431,6 +448,7 @@ class _DatabaseOwner:
             self._apply_migration_v4(connection)
             self._apply_migration_v5(connection)
             self._apply_migration_v6(connection)
+            self._apply_migration_v7(connection)
             return
 
         rows = connection.execute(
@@ -467,6 +485,9 @@ class _DatabaseOwner:
             current = 5
         if current == 5:
             self._apply_migration_v6(connection)
+            current = 6
+        if current == 6:
+            self._apply_migration_v7(connection)
 
     @staticmethod
     def _record_schema_version(connection: duckdb.DuckDBPyConnection, version: int) -> None:
@@ -503,6 +524,12 @@ class _DatabaseOwner:
             if statement.strip():
                 connection.execute(statement)
         self._record_schema_version(connection, 6)
+
+    def _apply_migration_v7(self, connection: duckdb.DuckDBPyConnection) -> None:
+        for statement in _MIGRATION_V7_SQL.split(";"):
+            if statement.strip():
+                connection.execute(statement)
+        self._record_schema_version(connection, 7)
 
     def _shutdown(self) -> None:
         if self.pid != os.getpid():
@@ -1432,6 +1459,84 @@ class Registry:
             ))
         return [self.get_feature_result(row["result_id"]) for row in rows]
 
+    def query_feature_results(self, filters: Mapping[str, Any], *,
+                               offset: int, limit: int) -> tuple[list[dict[str, Any]], bool]:
+        """Filter and page the FeatureResult index before decoding JSON documents."""
+        clauses: list[str] = []
+        params: list[Any] = []
+        direct_fields = {
+            "feature_ref": "f.feature_ref",
+            "definition_hash": "f.definition_hash",
+            "source_ref": "f.source_ref",
+            "split_id": "f.split_id",
+        }
+        for field, column in direct_fields.items():
+            if field in filters:
+                clauses.append(f"{column}=?")
+                params.append(filters[field])
+        if "result_ids" in filters:
+            result_ids = filters["result_ids"]
+            if not result_ids:
+                return [], False
+            clauses.append("f.result_id IN (" + ",".join("?" for _ in result_ids) + ")")
+            params.extend(result_ids)
+        if "run_id" in filters:
+            clauses.append(
+                "EXISTS (SELECT 1 FROM run_result_links l WHERE l.result_id=f.result_id "
+                "AND l.run_id=?)"
+            )
+            params.append(filters["run_id"])
+        if "study_id" in filters:
+            clauses.append(
+                "EXISTS (SELECT 1 FROM run_result_links l JOIN runs r ON r.run_id=l.run_id "
+                "WHERE l.result_id=f.result_id AND r.research_study_id=?)"
+            )
+            params.append(filters["study_id"])
+        for field in ("instrument_id", "trade_date"):
+            if field in filters:
+                clauses.append(f"json_extract_string(f.result_json, '$.scope.{field}')=?")
+                params.append(filters[field])
+        if "start" in filters:
+            clauses.append("json_extract_string(f.result_json, '$.scope.end') > ?")
+            params.append(filters["start"])
+        if "end" in filters:
+            clauses.append("json_extract_string(f.result_json, '$.scope.start') < ?")
+            params.append(filters["end"])
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+
+        def select(connection: duckdb.DuckDBPyConnection) -> tuple[list[dict[str, Any]], bool]:
+            rows = _fetchall(
+                connection,
+                "SELECT f.result_id,f.result_json FROM feature_results f"
+                + where + " ORDER BY f.created_at,f.result_id LIMIT ? OFFSET ?",
+                [*params, limit, offset],
+            )
+            docs = [{**json.loads(row["result_json"]), "health_checks": []} for row in rows]
+            result_ids = [doc["result_id"] for doc in docs]
+            if result_ids:
+                placeholders = ",".join("?" for _ in result_ids)
+                health = _fetchall(
+                    connection,
+                    "SELECT health_id,result_id,status,reason,checked_at,details_json "
+                    "FROM feature_result_health WHERE result_id IN (" + placeholders + ") "
+                    "ORDER BY health_id",
+                    result_ids,
+                )
+                by_result = {result_id: [] for result_id in result_ids}
+                for item in health:
+                    by_result[item["result_id"]].append({
+                        "health_id": int(item["health_id"]),
+                        "status": item["status"],
+                        "reason": item["reason"],
+                        "checked_at": item["checked_at"],
+                        "details": json.loads(item["details_json"]),
+                    })
+                for doc in docs:
+                    doc["health_checks"] = by_result[doc["result_id"]]
+            return docs, len(rows) >= limit
+
+        return self._call(select)
+
     def list_run_result_links(self, run_id: str) -> list[dict[str, Any]]:
         rows = self._call(lambda connection: _fetchall(
             connection,
@@ -1492,12 +1597,82 @@ class Registry:
 
         self._call(update)
 
-    def list_research_runs(self) -> list[dict[str, Any]]:
-        rows = self._call(lambda connection: _fetchall(
-            connection,
-            "SELECT run_id FROM runs WHERE research_study_id IS NOT NULL ORDER BY created_at,run_id",
-        ))
+    def list_research_runs(self, *, study_id: str | None = None) -> list[dict[str, Any]]:
+        if study_id is None:
+            rows = self._call(lambda connection: _fetchall(
+                connection,
+                "SELECT run_id FROM runs WHERE research_study_id IS NOT NULL ORDER BY created_at,run_id",
+            ))
+        else:
+            rows = self._call(lambda connection: _fetchall(
+                connection,
+                "SELECT run_id FROM runs WHERE research_study_id=? ORDER BY created_at,run_id",
+                (study_id,),
+            ))
         return [self.get_run(row["run_id"]) for row in rows]
+
+    def query_research_runs_page(self, study_id: str, *, start: str, end: str,
+                                 instruments: Sequence[str], offset: int,
+                                 limit: int) -> tuple[list[dict[str, Any]], bool]:
+        """Page only a Study's Runs whose frozen scopes can overlap a query range."""
+        if not instruments:
+            return [], False
+        instrument_predicate = " OR ".join(
+            "json_contains(json_extract(r.research_plan_json, '$.scope.instruments'), to_json(?))"
+            for _ in instruments
+        )
+
+        def select(connection: duckdb.DuckDBPyConnection) -> tuple[list[dict[str, Any]], bool]:
+            rows = _fetchall(
+                connection,
+                "SELECT r.* FROM runs r WHERE r.research_study_id=? "
+                "AND json_extract_string(r.research_plan_json, '$.scope.end')>? "
+                "AND json_extract_string(r.research_plan_json, '$.scope.start')<? "
+                f"AND ({instrument_predicate}) ORDER BY r.created_at,r.run_id LIMIT ? OFFSET ?",
+                [study_id, start, end, *instruments, limit, offset],
+            )
+            return ([self._decode_run_row(row) for row in rows], len(rows) >= limit)
+
+        return self._call(select)
+
+    def get_run_work_history(self, run_ids: Sequence[str]) -> dict[str, Any]:
+        """Fetch bounded Run work rows and their ordered attempt events in two owner queries."""
+        if not run_ids:
+            return {"stages_by_run": {}, "events_by_stage": {}}
+        if len(run_ids) > 500:
+            raise WorkflowError("get_run_work_history accepts at most 500 Run IDs")
+        placeholders = ",".join("?" for _ in run_ids)
+
+        def select(connection: duckdb.DuckDBPyConnection) -> dict[str, Any]:
+            rows = _fetchall(
+                connection,
+                f"SELECT * FROM stage_runs WHERE run_id IN ({placeholders}) "
+                "ORDER BY run_id,stage_name,partition_json,registry_order",
+                list(run_ids),
+            )
+            stages_by_run: dict[str, list[dict[str, Any]]] = {run_id: [] for run_id in run_ids}
+            stage_ids = []
+            for row in rows:
+                stage = self._decode_stage_row(row)
+                stages_by_run[stage["run_id"]].append(stage)
+                stage_ids.append(stage["stage_run_id"])
+            events_by_stage: dict[str, list[dict[str, Any]]] = {stage_id: [] for stage_id in stage_ids}
+            if stage_ids:
+                stage_placeholders = ",".join("?" for _ in stage_ids)
+                events = _fetchall(
+                    connection,
+                    "SELECT * FROM stage_state_events WHERE stage_run_id IN ("
+                    + stage_placeholders + ") ORDER BY event_id",
+                    stage_ids,
+                )
+                for event in events:
+                    events_by_stage[event["stage_run_id"]].append({
+                        **event,
+                        "fields": json.loads(event["fields_json"]),
+                    })
+            return {"stages_by_run": stages_by_run, "events_by_stage": events_by_stage}
+
+        return self._call(select)
 
     def find_cache(self, stage_name: str, stage_version: str, cache_key: str) -> dict[str, Any] | None:
         row = self._call(lambda connection: _fetchone(

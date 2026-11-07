@@ -202,3 +202,130 @@ class ResearchRepository:
         return [{"revision": int(row["revision"]), "document": json.loads(row["document_json"]),
                  "actor": json.loads(row["actor_json"]), "reason": row["reason"],
                  "created_at": row["created_at"]} for row in rows]
+
+    def add_review(self, document: dict[str, Any]) -> dict[str, Any]:
+        """Append a validated, evidence-bound Review without changing its evidence."""
+        created_at = utc_now()
+        stored = {**document, "created_at": created_at, "created_by": dict(document["actor"])}
+
+        def insert(connection: duckdb.DuckDBPyConnection) -> dict[str, Any]:
+            study_id = stored["study_id"]
+            if _fetchone(connection, "SELECT study_id FROM studies WHERE study_id=?", (study_id,)) is None:
+                raise UnknownReferenceError(f"unknown Study: {study_id}", details={"study_id": study_id})
+
+            for run_id in stored["run_refs"]:
+                run = _fetchone(
+                    connection,
+                    "SELECT research_study_id FROM runs WHERE run_id=? AND research_study_id IS NOT NULL",
+                    (run_id,),
+                )
+                if run is None:
+                    raise UnknownReferenceError(f"unknown research Run: {run_id}",
+                                                details={"run_id": run_id})
+                if run["research_study_id"] != study_id:
+                    raise ResearchValidationError(
+                        f"Review Run {run_id} does not belong to Study {study_id}",
+                        details={"run_id": run_id, "study_id": study_id},
+                    )
+
+            for result_id in stored["result_refs"]:
+                result_row = _fetchone(
+                    connection,
+                    "SELECT result_json FROM feature_results WHERE result_id=?",
+                    (result_id,),
+                )
+                if result_row is None:
+                    raise UnknownReferenceError(f"unknown FeatureResult: {result_id}",
+                                                details={"result_id": result_id})
+                result = json.loads(result_row["result_json"])
+                producer = result.get("producer_run_id")
+                producer_row = _fetchone(
+                    connection,
+                    "SELECT research_study_id FROM runs WHERE run_id=? AND research_study_id IS NOT NULL",
+                    (producer,),
+                )
+                if producer_row is None:
+                    raise ResearchValidationError(
+                        f"Review FeatureResult {result_id} has no registered producer Run",
+                        details={"result_id": result_id},
+                    )
+                if not any(
+                    _fetchone(connection,
+                             "SELECT result_id FROM run_result_links WHERE run_id=? AND result_id=?",
+                             (run_id, result_id)) is not None
+                    for run_id in stored["run_refs"]
+                ):
+                    raise ResearchValidationError(
+                        f"Review FeatureResult {result_id} is not linked to a referenced Run",
+                        details={"result_id": result_id},
+                    )
+
+            supersedes = stored.get("supersedes_review_id")
+            if supersedes is not None:
+                previous = _fetchone(
+                    connection, "SELECT study_id FROM reviews WHERE review_id=?", (supersedes,)
+                )
+                if previous is None:
+                    raise UnknownReferenceError(f"unknown Review: {supersedes}",
+                                                details={"review_id": supersedes})
+                if previous["study_id"] != study_id:
+                    raise ResearchValidationError(
+                        "superseded Review must belong to the same Study",
+                        details={"review_id": supersedes, "study_id": study_id},
+                    )
+
+            try:
+                connection.execute(
+                    "INSERT INTO reviews(review_id,study_id,run_refs_json,result_refs_json,created_at,"
+                    "document_json) VALUES(?,?,?,?,?,?)",
+                    (stored["review_id"], study_id, canonical_json(stored["run_refs"]),
+                     canonical_json(stored["result_refs"]), created_at, canonical_json(stored)),
+                )
+            except duckdb.ConstraintException as exc:
+                raise ImmutableVersionError(
+                    f"Review identity already exists: {stored['review_id']}",
+                    details={"review_id": stored["review_id"]},
+                ) from exc
+            return stored
+
+        return self._call(insert)
+
+    def get_review(self, review_id: str) -> dict[str, Any] | None:
+        row = self._call(lambda connection: _fetchone(
+            connection, "SELECT document_json FROM reviews WHERE review_id=?", (review_id,)
+        ))
+        return json.loads(row["document_json"]) if row else None
+
+    def list_reviews(self, study_id: str) -> list[dict[str, Any]]:
+        rows = self._call(lambda connection: _fetchall(
+            connection,
+            "SELECT document_json FROM reviews WHERE study_id=? ORDER BY review_order",
+            (study_id,),
+        ))
+        return [json.loads(row["document_json"]) for row in rows]
+
+    def list_reviews_page(self, study_id: str, *, run_id: str | None = None,
+                          result_ref: str | None = None, offset: int = 0,
+                          limit: int = 101) -> tuple[list[dict[str, Any]], bool]:
+        """Read one bounded Review page, filtering references in DuckDB."""
+        clauses = ["study_id=?"]
+        params: list[Any] = [study_id]
+        if run_id is not None:
+            clauses.append("json_contains(run_refs_json, to_json(?))")
+            params.append(run_id)
+        if result_ref is not None:
+            clauses.append("json_contains(result_refs_json, to_json(?))")
+            params.append(result_ref)
+        where = " AND ".join(clauses)
+
+        def select(connection: duckdb.DuckDBPyConnection) -> tuple[list[dict[str, Any]], bool]:
+            rows = _fetchall(
+                connection,
+                f"SELECT document_json FROM reviews WHERE {where} ORDER BY review_order "
+                "LIMIT ? OFFSET ?",
+                [*params, limit, offset],
+            )
+            return ([json.loads(row["document_json"]) for row in rows[:limit - 1]],
+                    len(rows) >= limit)
+
+        return self._call(select)

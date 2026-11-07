@@ -705,6 +705,32 @@ class RunPlanner:
             raise UnknownReferenceError(
                 f"unknown Study revision: {request['study_id']}@{request['study_revision']}"
             )
+        parent_run_id = request.get("parent_run_id")
+        if parent_run_id is not None:
+            parent_run = self._registry.get_run(parent_run_id)
+            if parent_run is None or parent_run.get("research_study_id") is None:
+                raise UnknownReferenceError(
+                    f"unknown research parent Run: {parent_run_id}",
+                    details={"parent_run_id": parent_run_id},
+                )
+            if parent_run["research_study_id"] != request["study_id"]:
+                raise ResearchValidationError(
+                    "parent_run_id must reference a Run in the same Study",
+                    details={"parent_run_id": parent_run_id,
+                             "study_id": request["study_id"]},
+                )
+        for review_id in request.get("adopted_review_refs", []):
+            review = self._repository.get_review(review_id)
+            if review is None:
+                raise UnknownReferenceError(
+                    f"unknown adopted Review: {review_id}",
+                    details={"review_id": review_id},
+                )
+            if review.get("study_id") != request["study_id"]:
+                raise ResearchValidationError(
+                    "adopted_review_refs must reference Reviews in the same Study",
+                    details={"review_id": review_id, "study_id": request["study_id"]},
+                )
         if request["feature_set_ref"] not in study["feature_set_refs"]:
             raise ResearchValidationError("FeatureSet is not registered in the requested Study revision")
         if not set(request["source_refs"]).issubset(study["source_refs"]):

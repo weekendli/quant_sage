@@ -45,13 +45,18 @@ def _file_ref(path: Path) -> dict[str, str]:
     }
 
 
-def make_numeric_source_fixture(directory: Path, rows: list[dict[str, Any]]):
+def make_numeric_source_fixture(
+    directory: Path,
+    rows: list[dict[str, Any]],
+    *,
+    source_id: str = "planning_source",
+):
     """Build a validated DataSource with actual, hashed Parquet values.
 
     The file includes rows outside the requested interval so executor tests can
     prove that the frozen plan filters authorized output scope.
     """
-    fixture = make_planning_source_fixture(directory)
+    fixture = make_planning_source_fixture(directory, source_id=source_id)
     table = pa.table({
         "event_time": pa.array(
             [datetime.fromisoformat(row["event_time"]) for row in rows],
@@ -100,6 +105,7 @@ def make_execution_environment(
     *,
     rows: list[dict[str, Any]] | None = None,
     feature_set_document: dict[str, Any] | None = None,
+    source_id: str = "planning_source",
 ):
     tmp_path.mkdir(parents=True, exist_ok=True)
     registry = Registry(tmp_path / "research.duckdb")
@@ -111,6 +117,7 @@ def make_execution_environment(
             {"event_time": "2024-06-03T13:10:20+00:00", "value": 3.0},
             {"event_time": "2024-06-03T13:12:10+00:00", "value": 100.0},
         ],
+        source_id=source_id,
     )
     service.register_source(source.document)
     register_planning_catalog(service)
@@ -122,11 +129,13 @@ def make_execution_environment(
     )
     study_document = make_planning_study_document(
         feature_set_ref=FEATURE_SET_REF,
+        source_ref=f"{source_id}@1",
     )
     service.create_study(study_document)
     split_ref = split_ref_from_fixture(source)
     request = make_plan_request(
         split_ref,
+        source_refs=(f"{source_id}@1",),
         selected_item_ids=["quote"],
         include_selection=True,
         start=RUN_START,

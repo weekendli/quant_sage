@@ -186,3 +186,29 @@ python -m examples.research_execution --help
 An independent-process smoke registered numeric source/catalog/FeatureSet/Study fixtures in a temporary workspace, invoked `python -m examples.research_execution --workspace ... --request ... --request-key ...`, then invoked `--resume` in another process. Both returned COMPLETE; result refs and the single numerical attempt were unchanged. Direct provider assertions checked trailing values, NA propagation and contributor availability; forged payload count/time/quality declarations were rejected.
 
 The 18 execution tests cover exact values and scopes, unselected inventory, no-future trailing behavior, step-limited verified dependency reuse and cache-only loss, unsupported budget rejection without Run creation, empty/all-NA/zero-row distinctions, ordinary failure and prepublication interruption, publication/DB fault points, repeat receipt recovery, invalid/orphan quarantine, producer-preserving cache links, missing-file repair, owner identity rejection, current Study access checks, failed-attempt-to-cache history, and A→B→restored-A active binding. Faults affect only temporary test workspaces. No frozen onboarding artifacts, raw CFFEX file or real metadata values were changed. Next increment: 01-F.
+
+## 01-F 结果、覆盖、Review 与比较（2026-11-07）
+
+Acceptance: **COMPLETE for 01-F**. Luna/xhigh implementation and test agents delivered the query/review backend and serialized acceptance cases; root integrated ResearchService and the inspection example, reviewed scope/health/history contracts, and ran full verification. Luna agents briefly hit their quota, then resumed using the same requested model after availability returned. Registry schema v7 adds immutable Reviews with ordered pagination.
+
+ResearchService exposes `list_results`, `read_results`, `study_coverage`, `add_review`, `list_reviews` and `compare_runs`. Metadata filtering/pagination occurs before result documents are materialized. Row reads use only registered, verified artifact references and a fixed column whitelist; rows retain definition/source/producer provenance. Limits are 500 metadata items, 10,000 returned rows, 100 read refs and 100 Review refs, with 4,096-row scanning batches and query deadlines. Numeric scanning and content verification run outside the Registry write queue. Fast metadata queries expose prior-check timestamps and an unverified marker; they do not claim current availability.
+
+Coverage derives expected intervals from source calendars/sessions and Study limits, rejecting explicit scope expansion. Processed-history unions, current available fragments, observations and valid values remain separate. Counts come from scoped Parquet rows; duplicate links do not multiply observations, and canonical producer fragments retain legitimate duplicate timestamps inside an artifact. Later healthy repair results satisfy coverage without erasing older missing health or failed attempts. Unselected candidates remain visible. All-NA and zero-row results remain processed evidence; source gaps and result-file loss are separate diagnostics.
+
+Reviews append actor/server creation metadata, scope, observations, decisions and exact evidence refs. Corrections preserve original documents through supersedes refs. Cross-Study cached results can be reviewed when a referenced Run in this Study has actually linked them; the actual producer remains unchanged. Numeric evidence must cover the Review's trading-session scope as a union; Run-level failure/coverage judgments may omit result refs. Scores require exact registered metric versions and bounded, resolvable evidence. Parent/adopted Review refs must exist in the same Study and cannot widen scope, steps or budgets. Run comparison reports each side's scope and common scope separately, including common/added dates, definitions and scoped quality.
+
+Executed verification:
+
+```bash
+python -m pytest -q tests/test_research_queries.py
+# 9 passed in 6.46s
+python -m pytest -q --tb=short
+# 230 passed in 34.65s
+python -m ruff check quantsage_discovery scripts tests examples
+# All checks passed!
+python -m examples.research_inspect --help
+```
+
+A subprocess smoke created synthetic numeric results and a cache consumer in a temporary workspace, then invoked `python -m examples.research_inspect --database ... --study ... --run ... --compare-run ... --result ... --scope ... --limit 1 --review-json ...`. It verified COMPLETE execution, one bounded row with truncation, actual Review persistence, common-date comparison and two valid observations. The 9 broader cases cover interval gaps/session identity, retained failure history and repaired health, all-NA/zero-row behavior, fast metadata health, safe column projection/pages/multiple sources, append-only Review corrections/scores/reference bounds/cross-Study cache evidence, result-scope unions, universal-versus-restricted sessions and synthetic A/B/C date/metric expansion.
+
+Initial test assumptions were corrected where window dependencies had actually computed a supposed coverage gap, where requested budget limits were safely intersected with Study limits, and where cached parent results legitimately pruned direct ancestor links. Assertions now check actual selected-result reuse and transitive lineage. No real market data or scientific outcome is claimed by these synthetic cases. Frozen onboarding artifacts and CFFEX were unchanged. Next increment: 01-G.

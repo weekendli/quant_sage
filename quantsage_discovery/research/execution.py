@@ -161,6 +161,63 @@ class ResearchExecutor:
                     self._record_result_health(candidate, str(exc))
         return None
 
+    def verify_result(self, result_id: str, *, record_health: bool = True) -> dict[str, Any]:
+        """Verify one published result against its frozen producer plan and artifact bytes.
+
+        This is a historical query check. It deliberately does not call
+        ``_authorize_run`` or compare against the current Study state/runtime;
+        those guards apply only before new execution or resume work.
+        """
+        if not isinstance(result_id, str) or not result_id.strip():
+            raise ResearchValidationError("result_id must be a non-empty string")
+        result = self._registry.get_feature_result(result_id)
+        if result is None:
+            raise UnknownReferenceError(f"unknown FeatureResult: {result_id}",
+                                        details={"result_id": result_id})
+        checked_at = _now()
+        try:
+            self._verify_stored_result(result, set())
+        except (ArtifactError, ArtifactValidationError, WorkflowError,
+                ResearchValidationError, UnknownReferenceError, OSError,
+                ValueError, KeyError, TypeError) as exc:
+            missing = False
+            for descriptor in result.get("artifacts", []):
+                artifact_ref = descriptor.get("artifact_ref", {}) if isinstance(descriptor, dict) else {}
+                uri = artifact_ref.get("uri") if isinstance(artifact_ref, dict) else None
+                if not isinstance(uri, str):
+                    continue
+                try:
+                    if not artifact_path(uri).exists():
+                        missing = True
+                        break
+                except ArtifactError:
+                    continue
+            status = "missing" if missing else "invalid"
+            if record_health:
+                stored_check = self._record_result_health(result, str(exc))
+                if stored_check is not None:
+                    checked_at = stored_check["checked_at"]
+            return {
+                "result_id": result_id,
+                "status": status,
+                "checked_at": checked_at,
+                "reason": str(exc),
+                "producer_run_id": result.get("producer_run_id"),
+            }
+        if record_health:
+            stored_check = self._registry.append_feature_result_health(
+                result_id=result_id, status="available",
+                details={"source": "research_query_verification"},
+            )
+            checked_at = stored_check["checked_at"]
+        return {
+            "result_id": result_id,
+            "status": "available",
+            "checked_at": checked_at,
+            "reason": None,
+            "producer_run_id": result.get("producer_run_id"),
+        }
+
     def _normalize_run_context(self, context: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(context, dict):
             raise ResearchValidationError("run context must be an object")
@@ -338,10 +395,10 @@ class ResearchExecutor:
         validate_feature_result_payload(refs, result)
         return refs
 
-    def _record_result_health(self, result: dict[str, Any], reason: str) -> None:
+    def _record_result_health(self, result: dict[str, Any], reason: str) -> dict[str, Any] | None:
         result_id = result.get("result_id")
         if not isinstance(result_id, str):
-            return
+            return None
         missing = False
         for descriptor in result.get("artifacts", []):
             artifact_ref = descriptor.get("artifact_ref", {}) if isinstance(descriptor, dict) else {}
@@ -354,7 +411,7 @@ class ResearchExecutor:
                 except ArtifactError:
                     pass
         try:
-            self._registry.append_feature_result_health(
+            return self._registry.append_feature_result_health(
                 result_id=result_id,
                 status="missing" if missing else "invalid",
                 reason=reason,
@@ -362,7 +419,7 @@ class ResearchExecutor:
             )
         except WorkflowError:
             # A receipt not yet committed has no FeatureResult row to annotate.
-            return
+            return None
 
     @contextmanager
     def _run_lock(self, run_id: str):

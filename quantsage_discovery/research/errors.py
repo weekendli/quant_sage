@@ -52,3 +52,7 @@ class IdempotencyConflictError(ResearchError):
 
 class SourceScopeMissingError(ResearchValidationError):
     code = "SOURCE_SCOPE_MISSING"
+
+
+class ArtifactInvalidError(ResearchError):
+    code = "ARTIFACT_INVALID"
