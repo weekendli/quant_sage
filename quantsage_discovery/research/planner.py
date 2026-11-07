@@ -661,7 +661,7 @@ class RunPlanner:
             })
         request = stored.get("research_request", stored.get("config", {}))
         config_snapshot = stored.get("config", {})
-        return {
+        view = {
             "schema_version": "run_v1",
             "run_id": stored["run_id"],
             "study_id": stored["research_study_id"],
@@ -695,6 +695,9 @@ class RunPlanner:
             "created_at": stored["created_at"],
             "updated_at": stored["updated_at"],
         }
+        from .execution_view import enrich_run_view
+
+        return enrich_run_view(self._registry, self._catalog, view)
 
     def _build_plan(self, request: dict[str, Any], feature_set: dict[str, Any]) -> dict[str, Any]:
         study = self._repository.get_study(request["study_id"], request["study_revision"])
@@ -768,7 +771,8 @@ class RunPlanner:
 
         def ensure_node(feature_ref: str, segment: dict[str, Any], out_start: datetime,
                         out_end: datetime, *, requested_item: str | None = None,
-                        associated_items: set[str] | None = None) -> tuple[str, str, str, str, str]:
+                        associated_items: set[str] | None = None,
+                        cache_only: bool = False) -> tuple[str, str, str, str, str]:
             key = node_key(feature_ref, segment)
             feature = self._catalog.get_feature(feature_ref)
             node = nodes.get(key)
@@ -778,6 +782,7 @@ class RunPlanner:
                     "output_start": out_start, "output_end": out_end,
                     "item_ids": set(), "role": "dependency_only",
                     "blocked_reason": segment.get("blocked_reason"),
+                    "cache_only": cache_only,
                     "children": set(), "processed_interval": None,
                 }
                 nodes[key] = node
@@ -787,6 +792,7 @@ class RunPlanner:
             if requested_item is not None:
                 node["role"] = "requested"
                 node["item_ids"].add(requested_item)
+                node["cache_only"] = False
             if associated_items:
                 node["item_ids"].update(associated_items)
             if key in processing:
@@ -804,13 +810,17 @@ class RunPlanner:
                         node["blocked_reason"] = "FEATURE_NOT_READY"
                     elif step not in effective_steps:
                         node["blocked_reason"] = "STEP_NOT_ALLOWED"
+                    elif node["cache_only"]:
+                        node["blocked_reason"] = "DEPENDENCY_NOT_SELECTED"
                     else:
                         source = source_by_ref[segment["source_ref"]]
                         node["blocked_reason"] = _tick_metadata_block(
                             feature, source, segment["instrument_id"], segment["trade_date"]
                         )
                 node["processed_interval"] = interval_key
-                if node["blocked_reason"] is not None:
+                if node["blocked_reason"] not in {
+                    None, "STEP_NOT_ALLOWED", "DEPENDENCY_NOT_SELECTED",
+                }:
                     if node["blocked_reason"] == "PENDING_SEMANTICS":
                         extension = _feature_extension(feature)
                         dependency_start = max(
@@ -860,6 +870,12 @@ class RunPlanner:
                     node["blocked_reason"] = "HISTORY_OUTSIDE_SPLIT_SCOPE"
                     return key
 
+                # These tasks may only bind a verified prior result. They never
+                # grant permission to dispatch additional dependency computation.
+                if node["blocked_reason"] in {"STEP_NOT_ALLOWED", "DEPENDENCY_NOT_SELECTED"}:
+                    node["cache_only"] = True
+                    return key
+
                 input_start = read_start
                 input_refs = feature.get("input_feature_refs", [])
                 if not isinstance(input_refs, list):
@@ -867,15 +883,15 @@ class RunPlanner:
                     return key
                 for dependency_ref in input_refs:
                     parse_feature_ref(dependency_ref, "Feature.input_feature_refs[]")
-                    if (dependency_ref not in selected_feature_refs
-                            and request["missing_dependencies"] == "block"):
-                        node["blocked_reason"] = "DEPENDENCY_NOT_SELECTED"
-                        node["missing_dependency_ref"] = dependency_ref
-                        break
+                    dependency_cache_only = (
+                        dependency_ref not in selected_feature_refs
+                        and request["missing_dependencies"] == "block"
+                    )
                     child_key = ensure_node(dependency_ref, segment, input_start,
                                             node["output_end"],
                                             associated_items=item_ids_by_feature.get(
-                                                dependency_ref, set()))
+                                                dependency_ref, set()),
+                                            cache_only=dependency_cache_only)
                     node["children"].add(child_key)
                     edges.add((child_key, key))
             finally:
@@ -900,22 +916,23 @@ class RunPlanner:
                     parent["blocked_reason"] = f"DEPENDENCY_BLOCKED:{child['feature']['feature_id']}"
                     changed = True
 
-        def transitive_history_start(
-            key: tuple[str, str, str, str, str],
-            visiting: set[tuple[str, str, str, str, str]],
-        ) -> datetime:
-            if key in visiting:
-                return nodes[key]["output_start"]
-            node = nodes[key]
-            result = node["output_start"] - _feature_extension(node["feature"])
-            nested = visiting | {key}
-            for child_key in node["children"]:
-                result = min(result, transitive_history_start(child_key, nested))
-            return result
+        def transitive_extension(feature: dict[str, Any], visiting: frozenset[str]) -> timedelta:
+            ref = f"{feature['feature_id']}@{feature['version']}"
+            if ref in visiting:
+                raise ResearchValidationError("cyclic frozen Feature dependencies")
+            children = [self._catalog.get_feature(child)
+                        for child in feature.get("input_feature_refs", [])]
+            return _feature_extension(feature) + max(
+                (transitive_extension(child, visiting | {ref}) for child in children),
+                default=timedelta(0),
+            )
 
         for key, node in nodes.items():
-            if node["role"] == "requested" and node["blocked_reason"] is None:
-                raw_start = transitive_history_start(key, set())
+            if (node["blocked_reason"] is None or node["cache_only"]
+                    or str(node["blocked_reason"]).startswith("DEPENDENCY_BLOCKED:")):
+                raw_start = node["output_start"] - transitive_extension(
+                    node["feature"], frozenset(),
+                )
                 segment = node["segment"]
                 available_start = max(raw_start, segment["session_start"])
                 node["raw_history_start"] = raw_start
@@ -934,6 +951,17 @@ class RunPlanner:
                     "end": _time_text(node["output_end"]),
                     "session_id": segment["session_id"],
                 }
+                if node["cache_only"]:
+                    if not _contained_by_ranges(
+                        study_ranges, segment["instrument_id"], available_start,
+                        node["output_end"], segment["session_id"],
+                    ):
+                        node["blocked_reason"] = "HISTORY_OUTSIDE_STUDY_SCOPE"
+                    elif not _contained_by_ranges(
+                        split_ranges, segment["instrument_id"], available_start,
+                        node["output_end"], segment["session_id"],
+                    ):
+                        node["blocked_reason"] = "HISTORY_OUTSIDE_SPLIT_SCOPE"
 
         code_revision, environment_ref, environment = _runtime_snapshot()
         source_hashes = {ref: source_by_ref[ref]["content_hash"] for ref in sorted(source_by_ref)}
@@ -1019,6 +1047,8 @@ class RunPlanner:
                 "role": node["role"],
                 "dependency_work_keys": [],
                 "cache_candidate": False,
+                "cache_only": node["cache_only"],
+                "input_result_refs": [],
                 "blocked_reason": node["blocked_reason"],
                 "state": state,
             })
@@ -1048,6 +1078,15 @@ class RunPlanner:
                 "Run budget does not cover the selected dependency closure",
                 details={"counts": limit_details, "effective_budget": effective_budget,
                          "exceeded": exceeded},
+            )
+        unsupported_limits = sorted(
+            set(effective_budget) & {"max_cpu_seconds", "max_memory_bytes"}
+        )
+        if plan_work and unsupported_limits:
+            raise ResearchValidationError(
+                "the current executor cannot enforce these hard resource limits",
+                details={"unsupported_limits": unsupported_limits,
+                         "executor": "single_owner_synchronous_v1"},
             )
 
         requested_count = sum(item["role"] == "requested" for item in plan_work)
@@ -1104,8 +1143,66 @@ class RunPlanner:
             "environment_ref": environment_ref,
         }
         plan_hash = _hash(plan_core)
+        # Cache health is a current observation, not a change to the authorized
+        # graph or request identity. Dispatch must revalidate every binding.
+        self._observe_cache(plan_core, request, environment)
         return {**plan_core, "plan_hash": plan_hash, "runtime_environment": environment,
                 "split_id": split["split_id"]}
+
+    def _observe_cache(self, plan: dict[str, Any], request: dict[str, Any],
+                       environment: dict[str, Any]) -> None:
+        from quantsage_discovery.core.artifacts import ArtifactStore
+
+        from .execution import ResearchExecutor
+
+        executor = ResearchExecutor(
+            self._registry, ArtifactStore(self._registry.path.parent / "artifacts"),
+            self._catalog,
+        )
+        context = {
+            "run_id": "planning_preview", "request": request,
+            "plan": {**plan, "runtime_environment": environment},
+            "environment": environment,
+        }
+        work_by_key = {work["work_key"]: work for work in plan["work"]}
+        for work in plan["work"]:
+            reason = work["blocked_reason"]
+            if (reason is not None and reason not in {
+                "STEP_NOT_ALLOWED", "DEPENDENCY_NOT_SELECTED",
+            } and not reason.startswith("DEPENDENCY_BLOCKED:")):
+                continue
+            candidate = executor.find_verified_result(context, work, record_health=False)
+            if candidate is not None:
+                work["cache_candidate"] = True
+                work["candidate_result_ref"] = candidate["result_id"]
+                work["input_result_refs"] = list(candidate["input_result_refs"])
+                work["state"] = StageStatus.PENDING.value
+                work["blocked_reason"] = None
+        changed = True
+        while changed:
+            changed = False
+            for work in plan["work"]:
+                reason = work["blocked_reason"]
+                if reason and reason.startswith("DEPENDENCY_BLOCKED:") and all(
+                    work_by_key[key]["blocked_reason"] is None
+                    for key in work["dependency_work_keys"]
+                ):
+                    work["blocked_reason"] = None
+                    work["state"] = StageStatus.PENDING.value
+                    changed = True
+        for work in plan["work"]:
+            if not work["cache_candidate"]:
+                work["input_result_refs"] = [
+                    work_by_key[key]["candidate_result_ref"]
+                    for key in work["dependency_work_keys"]
+                    if work_by_key[key].get("candidate_result_ref") is not None
+                ]
+        blocked = sum(work["state"] == StageStatus.BLOCKED.value for work in plan["work"])
+        plan["summary"] = {**plan["summary"], "blocked": blocked,
+                           "ready": len(plan["work"]) - blocked,
+                           "cache_candidates": sum(work["cache_candidate"] for work in plan["work"])}
+        if plan["work"]:
+            plan["status"] = "READY" if blocked < len(plan["work"]) else "BLOCKED"
 
     @staticmethod
     def _effective_budget(request_budget: dict[str, int], study_budget: dict[str, int]) -> dict[str, int]:

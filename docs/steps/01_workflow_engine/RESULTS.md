@@ -158,3 +158,31 @@ python -m ruff check quantsage_discovery scripts tests
 Tests cover night-session trade dates independent of UTC date, normalized identities, multi-level history, split/read authorization, missing metadata/source partitions, selection/pending behavior, whole-plan budget rejection without Run side effects, stale plan hashes, paused Studies, concurrent idempotency and persistence after reopen. All inputs are temporary serialized fixtures; real market execution, verified result reuse and publication recovery are not claimed here. Next increment: 01-E.
 
 Review boundary: this increment has no result index yet, so cache candidates are consistently false; 01-E must populate and verify candidates once real results exist. Preflight enforces measurable whole-graph work/partition limits. CPU, memory and concurrency caps are frozen for enforcement by the 01-E executor, not represented as proven static cost estimates.
+
+## 01-E 执行、发布与恢复（2026-11-07）
+
+Acceptance: **COMPLETE for 01-E**. GPT-6 Luna/xhigh agents implemented the executor, Registry result transactions and tests. Root integrated service/planning/views, corrected synthetic trailing/availability behavior and active-result history, and ran the final gates. A separate read-only agent reviewed the active-binding and attempt-history fix without remaining substantive findings.
+
+ResearchService now executes, resumes and recovers previously registered frozen graphs. Only selected targets and their required dependencies dispatch. Synthetic arithmetic/identity providers consume actual scoped Parquet and publish typed Parquet, including all-NA and zero-row outputs. Mean/max are synthetic event-anchor trailing statistics on `(t-W,t]`; production grid sampling and real L2/statistical backends remain later increments. Unknown availability stays null; known aggregate availability uses all contributors. Source reads use exchange/instrument/trade-date/session identities and half-open time scopes.
+
+ArtifactStore supports prepare/publish while preserving legacy commit behavior. Payloads/manifests and publication receipts are flushed before atomic bundle rename. Registry schema v6 stores immutable FeatureResults, Run links and append-only health. The owner transaction checks registered work identity, split, actual producer, input links, artifacts and attempt before atomically writing result/link/SUCCEEDED/event. Published result validation also scans actual Parquet counts, valid values, partition and time bounds. Recovery validates receipts before index adoption; invalid, nested and unknown-Run receipts retain quarantine evidence and reasons. Per-Run execution locks prevent competing recovery/dispatch.
+
+Cache candidates are verified during planning without writing health; execution verifies again and retains the actual producer. A cache-only dependency cannot cause forbidden computation when its cache is lost. Runtime code/Python/dependency changes reject new attempts with PLAN_CHANGED; Git HEAD alone is audit metadata. File loss appends health and permits repair without overwriting prior results. Active bindings follow state events, allowing a restored historical result to be reused while preserving all links. Cache events use attempt 0 so failed numerical attempts remain failed. Run views expose finite inventory selection, current results, health, producers, attempts and derived summaries.
+
+The local executor runs one numerical task at a time, respecting concurrency upper bounds. Work/partition budgets reject the full closure before registration. Hard CPU/memory caps are not enforceable by this synchronous backend and are explicitly rejected with INVALID_CONFIG in preflight; they are never silently ignored. This gate uses small synthetic artifacts, not a 30GB market-data benchmark or scientific validation.
+
+Executed in Python 3.12.3 / DuckDB 1.5.5 / PyArrow 25.0.1:
+
+```bash
+python -m pytest -q tests/test_research_execution.py
+# 18 passed in 5.85s
+python -m pytest -q --tb=short
+# 221 passed in 28.03s
+python -m ruff check quantsage_discovery scripts tests examples
+# All checks passed!
+python -m examples.research_execution --help
+```
+
+An independent-process smoke registered numeric source/catalog/FeatureSet/Study fixtures in a temporary workspace, invoked `python -m examples.research_execution --workspace ... --request ... --request-key ...`, then invoked `--resume` in another process. Both returned COMPLETE; result refs and the single numerical attempt were unchanged. Direct provider assertions checked trailing values, NA propagation and contributor availability; forged payload count/time/quality declarations were rejected.
+
+The 18 execution tests cover exact values and scopes, unselected inventory, no-future trailing behavior, step-limited verified dependency reuse and cache-only loss, unsupported budget rejection without Run creation, empty/all-NA/zero-row distinctions, ordinary failure and prepublication interruption, publication/DB fault points, repeat receipt recovery, invalid/orphan quarantine, producer-preserving cache links, missing-file repair, owner identity rejection, current Study access checks, failed-attempt-to-cache history, and A→B→restored-A active binding. Faults affect only temporary test workspaces. No frozen onboarding artifacts, raw CFFEX file or real metadata values were changed. Next increment: 01-F.

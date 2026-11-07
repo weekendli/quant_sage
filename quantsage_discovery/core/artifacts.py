@@ -59,6 +59,46 @@ def artifact_path(uri: str) -> Path:
     return path
 
 
+def fsync_directory(path: Path) -> None:
+    """Make directory-entry updates durable on local filesystems."""
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def fsync_tree(path: Path) -> None:
+    """Flush a prepared artifact bundle before its publication receipt is recorded."""
+    directories = [path, *(child for child in path.rglob("*") if child.is_dir())]
+    for child in path.rglob("*"):
+        if child.is_file():
+            descriptor = os.open(child, os.O_RDONLY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+    for directory in sorted(directories, key=lambda item: len(item.parts), reverse=True):
+        fsync_directory(directory)
+
+
+def durable_write_json(path: Path, value: Any) -> None:
+    """Atomically replace a JSON file and flush both its contents and directory entry."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    payload = (canonical_json(value) + "\n").encode("utf-8")
+    try:
+        with temporary.open("xb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        fsync_directory(path.parent)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
 def _validate_time_bounds(time_min: str | None, time_max: str | None) -> None:
     if (time_min is None) != (time_max is None):
         raise ArtifactValidationError("time_min and time_max must both be set or both be null")
@@ -156,8 +196,10 @@ class ArtifactStore:
             ) from exc
 
     def begin(self, context: RunContext, stage_name: str, stage_version: str, cache_key: str,
-              inputs: Mapping[str, ArtifactRef]) -> ArtifactTransaction:
-        return ArtifactTransaction(self, context, stage_name, stage_version, cache_key, inputs)
+              inputs: Mapping[str, ArtifactRef], *,
+              publication_id: str | None = None) -> ArtifactTransaction:
+        return ArtifactTransaction(self, context, stage_name, stage_version, cache_key, inputs,
+                                   publication_id=publication_id)
 
     def verify(self, ref: ArtifactRef, expected: Mapping[str, Any] | None = None) -> ArtifactManifest:
         payload = artifact_path(ref.uri)
@@ -209,7 +251,8 @@ class ArtifactTransaction:
     """Private per-stage bundle; it becomes visible only after full output validation."""
 
     def __init__(self, store: ArtifactStore, context: RunContext, stage_name: str,
-                 stage_version: str, cache_key: str, inputs: Mapping[str, ArtifactRef]):
+                 stage_version: str, cache_key: str, inputs: Mapping[str, ArtifactRef], *,
+                 publication_id: str | None = None):
         self.store = store
         self.context = context
         self.stage_name = stage_name
@@ -217,11 +260,17 @@ class ArtifactTransaction:
         self.cache_key = cache_key
         self.inputs = dict(inputs)
         self.stage_run_id = context.stage_run_id or f"sr_{uuid.uuid4().hex}"
-        self.temp_root = store.root / ".staging" / f"{self.stage_run_id}-{uuid.uuid4().hex}"
-        self.final_root = store.root / "runs" / context.run_id / "stages" / self.stage_run_id
+        self.publication_id = publication_id or self.stage_run_id
+        if (not isinstance(self.publication_id, str) or not self.publication_id
+                or "/" in self.publication_id or "\\" in self.publication_id
+                or self.publication_id in {".", ".."}):
+            raise ArtifactError("publication_id must be a simple non-empty path component")
+        self.temp_root = store.root / ".staging" / f"{self.publication_id}-{uuid.uuid4().hex}"
+        self.final_root = store.root / "runs" / context.run_id / "stages" / self.publication_id
         self.temp_root.mkdir(parents=True, exist_ok=False)
         self._pending: dict[str, _Pending] = {}
         self._committed = False
+        self._prepared_refs: dict[str, ArtifactRef] | None = None
 
     def reserve_output(self, alias: str, *, artifact_type: str, schema_version: str,
                        relative_path: str = "payload",
@@ -350,9 +399,10 @@ class ArtifactTransaction:
             raise ArtifactError(f"unsupported artifact source type: {source_path}")
         return self.register_output(alias)
 
-    def commit(self, result: StageResult, code_revision: str) -> dict[str, ArtifactRef]:
-        if self._committed:
-            raise ArtifactError("artifact transaction already committed")
+    def prepare(self, result: StageResult, code_revision: str) -> dict[str, ArtifactRef]:
+        """Validate outputs and write their final-path manifests without publishing the bundle."""
+        if self._committed or self._prepared_refs is not None:
+            raise ArtifactError("artifact transaction is already prepared or committed")
         if not isinstance(result, StageResult):
             raise ArtifactValidationError("stage execute() must return StageResult")
         returned_pending: set[str] = set()
@@ -415,16 +465,41 @@ class ArtifactTransaction:
         if self.final_root.exists():
             raise ArtifactError(f"refusing to overwrite prior stage output: {self.final_root}")
         self.final_root.parent.mkdir(parents=True, exist_ok=True)
+        fsync_tree(self.temp_root)
+        self._prepared_refs = finalized
+        return dict(finalized)
+
+    def publish(self, *, preserve_invalid: bool = False) -> dict[str, ArtifactRef]:
+        """Atomically publish a prepared bundle, then verify the final immutable refs."""
+        if self._committed:
+            raise ArtifactError("artifact transaction already committed")
+        if self._prepared_refs is None:
+            raise ArtifactError("artifact transaction must be prepared before publication")
+        if self.final_root.exists():
+            raise ArtifactError(f"refusing to overwrite prior stage output: {self.final_root}")
         os.replace(self.temp_root, self.final_root)
+        fsync_directory(self.final_root.parent)
         try:
-            for ref in finalized.values():
+            for ref in self._prepared_refs.values():
                 if ref.uri.startswith("file://"):
                     self.store.verify(ref)
         except Exception:
-            shutil.rmtree(self.final_root, ignore_errors=True)
+            if preserve_invalid:
+                quarantine = self.store.root / ".quarantine" / "artifacts"
+                quarantine.mkdir(parents=True, exist_ok=True)
+                destination = quarantine / f"{self.publication_id}-{uuid.uuid4().hex}"
+                os.replace(self.final_root, destination)
+                fsync_directory(quarantine)
+            else:
+                shutil.rmtree(self.final_root, ignore_errors=True)
             raise
         self._committed = True
-        return finalized
+        return dict(self._prepared_refs)
+
+    def commit(self, result: StageResult, code_revision: str) -> dict[str, ArtifactRef]:
+        """Compatibility wrapper for the original one-call publication contract."""
+        self.prepare(result, code_revision)
+        return self.publish()
 
     def abort(self) -> None:
         if not self._committed:

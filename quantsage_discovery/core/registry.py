@@ -32,12 +32,13 @@ _TRANSITIONS = {
     StageStatus.PENDING: {StageStatus.RUNNING, StageStatus.CACHED, StageStatus.SKIPPED,
                           StageStatus.BLOCKED},
     StageStatus.RUNNING: {StageStatus.RUNNING, StageStatus.SUCCEEDED, StageStatus.CACHED,
-                          StageStatus.FAILED, StageStatus.BLOCKED},
-    StageStatus.FAILED: {StageStatus.RUNNING, StageStatus.CACHED, StageStatus.BLOCKED},
-    StageStatus.BLOCKED: {StageStatus.RUNNING, StageStatus.CACHED},
+                          StageStatus.FAILED, StageStatus.BLOCKED, StageStatus.PENDING},
+    StageStatus.FAILED: {StageStatus.RUNNING, StageStatus.SUCCEEDED, StageStatus.CACHED,
+                         StageStatus.BLOCKED, StageStatus.SKIPPED},
+    StageStatus.BLOCKED: {StageStatus.RUNNING, StageStatus.CACHED, StageStatus.SKIPPED},
     StageStatus.SKIPPED: {StageStatus.RUNNING, StageStatus.CACHED},
-    StageStatus.CACHED: {StageStatus.RUNNING, StageStatus.BLOCKED},
-    StageStatus.SUCCEEDED: {StageStatus.RUNNING, StageStatus.BLOCKED},
+    StageStatus.CACHED: {StageStatus.RUNNING, StageStatus.BLOCKED, StageStatus.PENDING},
+    StageStatus.SUCCEEDED: {StageStatus.RUNNING, StageStatus.BLOCKED, StageStatus.PENDING},
 }
 
 
@@ -231,14 +232,59 @@ CREATE UNIQUE INDEX research_run_idempotency_idx ON runs(research_study_id, requ
 _SCHEMA_V5_CHECKSUM = hashlib.sha256(
     f"{_SCHEMA_V4_CHECKSUM}\n{_MIGRATION_V5_SQL}".encode()
 ).hexdigest()
+_MIGRATION_V6_SQL = """
+CREATE SEQUENCE feature_result_link_order_seq START 1;
+CREATE SEQUENCE feature_result_health_order_seq START 1;
+CREATE TABLE feature_results (
+    result_id VARCHAR PRIMARY KEY,
+    feature_ref VARCHAR NOT NULL,
+    definition_hash VARCHAR NOT NULL,
+    source_ref VARCHAR NOT NULL,
+    split_id VARCHAR NOT NULL,
+    scope_json VARCHAR NOT NULL,
+    required_history_json VARCHAR NOT NULL,
+    computation_fingerprint VARCHAR NOT NULL,
+    producer_run_id VARCHAR NOT NULL,
+    producer_work_key VARCHAR NOT NULL,
+    result_json VARCHAR NOT NULL,
+    created_at VARCHAR NOT NULL
+);
+CREATE INDEX feature_result_cache_idx ON feature_results(
+    feature_ref, definition_hash, source_ref, split_id, computation_fingerprint
+);
+CREATE TABLE run_result_links (
+    link_id BIGINT PRIMARY KEY DEFAULT nextval('feature_result_link_order_seq'),
+    run_id VARCHAR NOT NULL,
+    work_key VARCHAR NOT NULL,
+    result_id VARCHAR NOT NULL,
+    relation VARCHAR NOT NULL,
+    created_at VARCHAR NOT NULL,
+    UNIQUE(run_id, work_key, result_id)
+);
+CREATE INDEX run_result_link_run_idx ON run_result_links(run_id, work_key, link_id);
+CREATE INDEX run_result_link_result_idx ON run_result_links(result_id);
+CREATE TABLE feature_result_health (
+    health_id BIGINT PRIMARY KEY DEFAULT nextval('feature_result_health_order_seq'),
+    result_id VARCHAR NOT NULL,
+    status VARCHAR NOT NULL,
+    reason VARCHAR,
+    checked_at VARCHAR NOT NULL,
+    details_json VARCHAR NOT NULL
+);
+CREATE INDEX feature_result_health_result_idx ON feature_result_health(result_id, health_id);
+""".strip()
+_SCHEMA_V6_CHECKSUM = hashlib.sha256(
+    f"{_SCHEMA_V5_CHECKSUM}\n{_MIGRATION_V6_SQL}".encode()
+).hexdigest()
 _SCHEMA_CHECKSUMS = {
     1: _SCHEMA_V1_CHECKSUM,
     2: _SCHEMA_V2_CHECKSUM,
     3: _SCHEMA_V3_CHECKSUM,
     4: _SCHEMA_V4_CHECKSUM,
     5: _SCHEMA_V5_CHECKSUM,
+    6: _SCHEMA_V6_CHECKSUM,
 }
-_CURRENT_SCHEMA_VERSION = 5
+_CURRENT_SCHEMA_VERSION = 6
 _T = TypeVar("_T")
 
 
@@ -384,6 +430,7 @@ class _DatabaseOwner:
             self._apply_migration_v3(connection)
             self._apply_migration_v4(connection)
             self._apply_migration_v5(connection)
+            self._apply_migration_v6(connection)
             return
 
         rows = connection.execute(
@@ -417,6 +464,9 @@ class _DatabaseOwner:
             current = 4
         if current == 4:
             self._apply_migration_v5(connection)
+            current = 5
+        if current == 5:
+            self._apply_migration_v6(connection)
 
     @staticmethod
     def _record_schema_version(connection: duckdb.DuckDBPyConnection, version: int) -> None:
@@ -447,6 +497,12 @@ class _DatabaseOwner:
             if statement.strip():
                 connection.execute(statement)
         self._record_schema_version(connection, 5)
+
+    def _apply_migration_v6(self, connection: duckdb.DuckDBPyConnection) -> None:
+        for statement in _MIGRATION_V6_SQL.split(";"):
+            if statement.strip():
+                connection.execute(statement)
+        self._record_schema_version(connection, 6)
 
     def _shutdown(self) -> None:
         if self.pid != os.getpid():
@@ -850,6 +906,598 @@ class Registry:
             (stage_run_id,),
         ))
         return [{**row, "fields": json.loads(row["fields_json"])} for row in rows]
+
+    def claim_research_work(self, stage_run_id: str, *, computation_fingerprint: str,
+                            config_hash: str, code_revision: str,
+                            inputs: Mapping[str, ArtifactRef]) -> dict[str, Any]:
+        """Atomically claim one pending work row so concurrent executors cannot duplicate it."""
+        timestamp = utc_now()
+        inputs_json = canonical_json({key: ref.to_dict() for key, ref in sorted(inputs.items())})
+
+        def claim(connection: duckdb.DuckDBPyConnection) -> dict[str, Any]:
+            row = _fetchone(connection,
+                            "SELECT status,attempt FROM stage_runs WHERE stage_run_id=?",
+                            (stage_run_id,))
+            if row is None:
+                raise WorkflowError(f"unknown stage_run_id: {stage_run_id}")
+            current = StageStatus(row["status"])
+            if current not in {StageStatus.PENDING, StageStatus.FAILED, StageStatus.SKIPPED}:
+                return {"claimed": False, "status": current.value,
+                        "attempt": int(row["attempt"])}
+            attempt = int(row["attempt"]) + 1
+            fields = {
+                "status": StageStatus.RUNNING.value,
+                "cache_key": computation_fingerprint,
+                "config_hash": config_hash,
+                "code_revision": code_revision,
+                "inputs_json": inputs_json,
+                "started_at": timestamp,
+                "finished_at": None,
+                "duration_ms": None,
+                "error_json": None,
+                "attempt": attempt,
+            }
+            assignments = ", ".join(f"{key}=?" for key in fields)
+            connection.execute(f"UPDATE stage_runs SET {assignments} WHERE stage_run_id=?",
+                               [*fields.values(), stage_run_id])
+            connection.execute(
+                "INSERT INTO stage_state_events(stage_run_id,state,attempt,fields_json,created_at) "
+                "VALUES(?,?,?,?,?)",
+                (stage_run_id, StageStatus.RUNNING.value, attempt,
+                 canonical_json(fields), timestamp),
+            )
+            return {"claimed": True, "status": StageStatus.RUNNING.value, "attempt": attempt}
+
+        return self._call(claim)
+
+    def set_research_work_pending(self, stage_run_id: str, *, reason: str) -> None:
+        """Reconcile work: preserve interruption as a failed attempt, requeue invalid results."""
+        timestamp = utc_now()
+
+        def reconcile(connection: duckdb.DuckDBPyConnection) -> None:
+            row = _fetchone(connection,
+                            "SELECT status,attempt FROM stage_runs WHERE stage_run_id=?",
+                            (stage_run_id,))
+            if row is None:
+                raise WorkflowError(f"unknown stage_run_id: {stage_run_id}")
+            current = StageStatus(row["status"])
+            if current == StageStatus.RUNNING:
+                status = StageStatus.FAILED
+                error = {"code": "INTERRUPTED", "message": reason}
+                event_attempt = int(row["attempt"])
+            elif current in {StageStatus.SUCCEEDED, StageStatus.CACHED}:
+                status = StageStatus.PENDING
+                error = {"code": "RESULT_INVALIDATED", "message": reason}
+                # This event requeues work without rewriting its completed attempt history.
+                event_attempt = 0
+            else:
+                return
+            connection.execute(
+                "UPDATE stage_runs SET status=?,finished_at=?,error_json=? WHERE stage_run_id=?",
+                (status.value, timestamp, canonical_json(error), stage_run_id),
+            )
+            connection.execute(
+                "INSERT INTO stage_state_events(stage_run_id,state,attempt,fields_json,created_at) "
+                "VALUES(?,?,?,?,?)",
+                (stage_run_id, status.value, event_attempt,
+                 canonical_json({**error, "requeued": status == StageStatus.PENDING}), timestamp),
+            )
+
+        self._call(reconcile)
+
+    @staticmethod
+    def _research_plan_work(connection: duckdb.DuckDBPyConnection, run_id: str,
+                            work_key: str) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+        row = _fetchone(
+            connection,
+            "SELECT research_study_id,research_plan_json FROM runs WHERE run_id=?",
+            (run_id,),
+        )
+        if row is None or row["research_study_id"] is None or not row["research_plan_json"]:
+            raise WorkflowError(f"run has no frozen research plan: {run_id}")
+        plan = json.loads(row["research_plan_json"])
+        works = plan.get("work")
+        if not isinstance(works, list):
+            raise WorkflowError(f"research Run plan has no work list: {run_id}")
+        matching = [item for item in works
+                    if isinstance(item, dict) and item.get("work_key") == work_key]
+        if len(matching) != 1:
+            raise WorkflowError(
+                f"frozen research plan does not identify exactly one work item: {work_key}"
+            )
+        work_by_key = {
+            item["work_key"]: item for item in works
+            if isinstance(item, dict) and isinstance(item.get("work_key"), str)
+        }
+        if len(work_by_key) != len(works):
+            raise WorkflowError(f"research Run plan has missing or duplicate work keys: {run_id}")
+        return plan, matching[0], work_by_key
+
+    @staticmethod
+    def _assert_feature_result_identity(result: Mapping[str, Any], plan: Mapping[str, Any],
+                                        work: Mapping[str, Any], *, producer_run_id: str,
+                                        producer_work_key: str,
+                                        producer_stage_run_id: str | None = None) -> None:
+        expected = {
+            "feature_ref": work.get("feature_ref"),
+            "definition_hash": work.get("definition_hash"),
+            "source_ref": work.get("source_ref"),
+            "scope": work.get("partition_scope"),
+            "required_history": work.get("required_history"),
+            "source_refs": [work.get("source_ref")],
+            "producer_run_id": producer_run_id,
+            "producer_work_key": producer_work_key,
+            "producer_work_id": producer_work_key,
+            "split_ref": {
+                "split_id": plan.get("split_id"),
+                **(plan.get("split_ref") or {}),
+            },
+        }
+        for field, wanted in expected.items():
+            if canonical_json(result.get(field)) != canonical_json(wanted):
+                raise WorkflowError(
+                    f"FeatureResult {field} does not match its frozen Run work identity"
+                )
+        if (producer_stage_run_id is not None
+                and result.get("producer_stage_run_id") != producer_stage_run_id):
+            raise WorkflowError("FeatureResult producer stage does not match the registered work")
+
+    @staticmethod
+    def _assert_feature_result_artifacts(result: Mapping[str, Any],
+                                         artifacts: Mapping[str, ArtifactRef]) -> None:
+        descriptors = result.get("artifacts")
+        if not isinstance(descriptors, list) or not descriptors or not artifacts:
+            raise WorkflowError("a successful FeatureResult must reference at least one artifact")
+        try:
+            described = []
+            for descriptor in descriptors:
+                if not isinstance(descriptor, Mapping):
+                    raise TypeError("artifact descriptor must be an object")
+                artifact_ref = descriptor.get("artifact_ref")
+                if not isinstance(artifact_ref, Mapping):
+                    raise TypeError("artifact_ref must be an object")
+                ref = ArtifactRef.from_dict(artifact_ref)
+                if (descriptor.get("hash") != ref.content_hash
+                        or descriptor.get("schema") != ref.schema_version):
+                    raise ValueError("artifact descriptor hash/schema disagrees with its ref")
+                described.append(canonical_json(ref.to_dict()))
+            if any(not isinstance(ref, ArtifactRef) for ref in artifacts.values()):
+                raise TypeError("published artifacts must be ArtifactRef values")
+            supplied = [canonical_json(ref.to_dict()) for ref in artifacts.values()]
+        except (TypeError, ValueError) as exc:
+            raise WorkflowError(f"FeatureResult artifact references are invalid: {exc}") from exc
+        if sorted(described) != sorted(supplied):
+            raise WorkflowError("FeatureResult artifacts do not match the published artifact refs")
+
+    @staticmethod
+    def _assert_feature_result_inputs(
+        connection: duckdb.DuckDBPyConnection, result: Mapping[str, Any],
+        plan: Mapping[str, Any], work: Mapping[str, Any],
+        work_by_key: Mapping[str, Mapping[str, Any]], *, producer_run_id: str,
+    ) -> None:
+        input_refs = result.get("input_result_refs")
+        dependency_keys = work.get("dependency_work_keys")
+        if (not isinstance(input_refs, list)
+                or any(not isinstance(ref, str) or not ref for ref in input_refs)
+                or not isinstance(dependency_keys, list)
+                or any(not isinstance(key, str) for key in dependency_keys)
+                or len(set(dependency_keys)) != len(dependency_keys)):
+            raise WorkflowError("FeatureResult inputs do not match a valid frozen dependency list")
+        if len(input_refs) != len(dependency_keys):
+            raise WorkflowError("FeatureResult input refs do not cover every frozen dependency")
+
+        links_by_dependency: dict[str, set[str]] = {}
+        for dependency_key in dependency_keys:
+            dependency = work_by_key.get(dependency_key)
+            if dependency is None:
+                raise WorkflowError("frozen dependency work key is absent from its Run plan")
+            rows = _fetchall(
+                connection,
+                "SELECT result_id FROM run_result_links WHERE run_id=? AND work_key=?",
+                (producer_run_id, dependency_key),
+            )
+            linked_ids = {row["result_id"] for row in rows}
+            if not linked_ids:
+                raise WorkflowError("FeatureResult dependency has no registered result link")
+            links_by_dependency[dependency_key] = linked_ids
+
+        # Match each result ref to one distinct planned dependency link. This also
+        # rejects a real result link belonging only to an unrelated work item.
+        ref_to_dependency: dict[int, str] = {}
+
+        def match(dependency_key: str, visited_refs: set[int]) -> bool:
+            for index, result_id in enumerate(input_refs):
+                if index in visited_refs or result_id not in links_by_dependency[dependency_key]:
+                    continue
+                visited_refs.add(index)
+                previous = ref_to_dependency.get(index)
+                if previous is None or match(previous, visited_refs):
+                    ref_to_dependency[index] = dependency_key
+                    return True
+            return False
+
+        for dependency_key in dependency_keys:
+            if not match(dependency_key, set()):
+                raise WorkflowError("FeatureResult input refs do not match frozen dependency links")
+        if len(ref_to_dependency) != len(input_refs):
+            raise WorkflowError("FeatureResult contains refs outside its frozen dependency links")
+
+        for index, dependency_key in ref_to_dependency.items():
+            row = _fetchone(
+                connection,
+                "SELECT result_json FROM feature_results WHERE result_id=?",
+                (input_refs[index],),
+            )
+            if row is None:
+                raise WorkflowError("FeatureResult input ref is not a registered FeatureResult")
+            dependency_result = json.loads(row["result_json"])
+            dependency_work = work_by_key[dependency_key]
+            Registry._assert_feature_result_identity(
+                dependency_result, plan, dependency_work,
+                producer_run_id=dependency_result.get("producer_run_id"),
+                producer_work_key=dependency_result.get("producer_work_key"),
+            )
+
+    def commit_research_result(self, *, run_id: str, work_key: str,
+                               stage_run_id: str, result: Mapping[str, Any],
+                               artifacts: Mapping[str, ArtifactRef],
+                               metrics: Mapping[str, Any], receipt_id: str,
+                               attempt: int) -> dict[str, Any]:
+        """Atomically register a FeatureResult, its Run link, success state, and event."""
+        result_doc = dict(result)
+        required = {
+            "result_id", "feature_ref", "definition_hash", "source_ref", "split_ref",
+            "scope", "processed_scope", "required_history", "input_result_refs",
+            "producer_run_id", "producer_work_key", "computation_fingerprint",
+            "producer_work_id", "source_refs", "artifacts", "coverage", "quality",
+            "time_metadata",
+        }
+        missing = required - result_doc.keys()
+        if missing:
+            raise WorkflowError("FeatureResult is missing fields: " + ", ".join(sorted(missing)))
+        if not isinstance(result_doc["result_id"], str) or not result_doc["result_id"]:
+            raise WorkflowError("FeatureResult result_id must be a non-empty string")
+        self._assert_feature_result_artifacts(result_doc, artifacts)
+        if result_doc["producer_run_id"] != run_id or result_doc["producer_work_key"] != work_key:
+            raise WorkflowError("FeatureResult producer does not match the committing Run work")
+        if result_doc["producer_work_id"] != work_key or result_doc["source_refs"] != [
+            result_doc["source_ref"]
+        ]:
+            raise WorkflowError("FeatureResult canonical producer/source refs do not match")
+        if type(attempt) is not int or attempt < 1:
+            raise WorkflowError("publication attempt must be a positive integer")
+        try:
+            result_json = canonical_json(result_doc)
+        except (TypeError, ValueError) as exc:
+            raise WorkflowError(f"FeatureResult is not JSON serializable: {exc}") from exc
+        artifacts_json = canonical_json({key: ref.to_dict()
+                                         for key, ref in sorted(artifacts.items())})
+        metrics_json = canonical_json(metrics)
+        timestamp = utc_now()
+
+        def commit(connection: duckdb.DuckDBPyConnection) -> dict[str, Any]:
+            stage = _fetchone(connection,
+                              "SELECT status,attempt,run_id,work_key,stage_run_id,cache_key "
+                              "FROM stage_runs "
+                              "WHERE stage_run_id=?", (stage_run_id,))
+            if stage is None or stage["run_id"] != run_id or stage["work_key"] != work_key:
+                raise WorkflowError("publication receipt does not match a registered Run work row")
+            plan, work, work_by_key = self._research_plan_work(connection, run_id, work_key)
+            self._assert_feature_result_identity(
+                result_doc, plan, work, producer_run_id=run_id,
+                producer_work_key=work_key, producer_stage_run_id=stage_run_id,
+            )
+            self._assert_feature_result_inputs(
+                connection, result_doc, plan, work, work_by_key,
+                producer_run_id=run_id,
+            )
+            existing_result = _fetchone(connection,
+                                        "SELECT result_json FROM feature_results WHERE result_id=?",
+                                        (result_doc["result_id"],))
+            if existing_result is not None and existing_result["result_json"] != result_json:
+                raise WorkflowError("FeatureResult id collision with different immutable content")
+            linked = _fetchone(
+                connection,
+                "SELECT link_id FROM run_result_links WHERE run_id=? AND work_key=? AND result_id=?",
+                (run_id, work_key, result_doc["result_id"]),
+            )
+            if linked is not None:
+                return {"outcome": "existing", "result_id": result_doc["result_id"]}
+            if stage["cache_key"] != result_doc["computation_fingerprint"]:
+                raise WorkflowError(
+                    "FeatureResult computation fingerprint does not match the claimed work"
+                )
+            if int(stage["attempt"]) != attempt:
+                raise WorkflowError(
+                    "publication receipt attempt is stale for the registered work row"
+                )
+            current = StageStatus(stage["status"])
+            if current == StageStatus.SUCCEEDED:
+                raise WorkflowError(
+                    "a successful attempt cannot publish a different FeatureResult"
+                )
+            if current not in {StageStatus.RUNNING, StageStatus.FAILED}:
+                raise WorkflowError(
+                    f"cannot commit published result from work state {current.value}"
+                )
+            if existing_result is None:
+                connection.execute(
+                    "INSERT INTO feature_results(result_id,feature_ref,definition_hash,source_ref,"
+                    "split_id,scope_json,required_history_json,computation_fingerprint,"
+                    "producer_run_id,producer_work_key,result_json,created_at) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (result_doc["result_id"], result_doc["feature_ref"],
+                     result_doc["definition_hash"], result_doc["source_ref"],
+                     result_doc["split_ref"]["split_id"], canonical_json(result_doc["scope"]),
+                     canonical_json(result_doc["required_history"]),
+                     result_doc["computation_fingerprint"], run_id, work_key,
+                     result_json, timestamp),
+                )
+            connection.execute(
+                "INSERT INTO run_result_links(run_id,work_key,result_id,relation,created_at) "
+                "VALUES(?,?,?,?,?)",
+                (run_id, work_key, result_doc["result_id"], "PRODUCED", timestamp),
+            )
+            fields = {
+                "status": StageStatus.SUCCEEDED.value,
+                "artifacts_json": artifacts_json,
+                "metrics_json": metrics_json,
+                "warnings_json": canonical_json([]),
+                "finished_at": timestamp,
+                "error_json": None,
+                "source_stage_run_id": None,
+            }
+            assignments = ", ".join(f"{key}=?" for key in fields)
+            connection.execute(f"UPDATE stage_runs SET {assignments} WHERE stage_run_id=?",
+                               [*fields.values(), stage_run_id])
+            connection.execute(
+                "INSERT INTO stage_state_events(stage_run_id,state,attempt,fields_json,created_at) "
+                "VALUES(?,?,?,?,?)",
+                (stage_run_id, StageStatus.SUCCEEDED.value, int(stage["attempt"]),
+                 canonical_json({**fields, "receipt_id": receipt_id,
+                                "result_id": result_doc["result_id"]}), timestamp),
+            )
+            return {"outcome": "created", "result_id": result_doc["result_id"]}
+
+        try:
+            return self._call(commit)
+        except duckdb.ConstraintException as exc:
+            raise WorkflowError("FeatureResult publication violated a Registry uniqueness constraint") from exc
+
+    def link_cached_feature_result(self, *, run_id: str, work_key: str,
+                                   stage_run_id: str, result: Mapping[str, Any],
+                                   artifacts: Mapping[str, ArtifactRef],
+                                   metrics: Mapping[str, Any],
+                                   cache_source_run_id: str) -> dict[str, Any]:
+        """Link a previously produced, verified result without changing its producer."""
+        timestamp = utc_now()
+        result_id = result.get("result_id")
+        if not isinstance(result_id, str) or not result_id:
+            raise WorkflowError("cached FeatureResult requires a non-empty result_id")
+
+        def link(connection: duckdb.DuckDBPyConnection) -> dict[str, Any]:
+            stage = _fetchone(connection,
+                              "SELECT status,attempt,run_id,work_key FROM stage_runs "
+                              "WHERE stage_run_id=?", (stage_run_id,))
+            if stage is None or stage["run_id"] != run_id or stage["work_key"] != work_key:
+                raise WorkflowError("cached result does not match a registered Run work row")
+            stored = _fetchone(connection,
+                               "SELECT feature_ref,definition_hash,source_ref,split_id,scope_json,"
+                               "required_history_json,computation_fingerprint,producer_run_id,"
+                               "producer_work_key,result_json FROM feature_results WHERE result_id=?",
+                               (result_id,))
+            if stored is None:
+                raise WorkflowError("cannot link an unregistered FeatureResult as cached")
+            result_doc = json.loads(stored["result_json"])
+            if (result_doc.get("result_id") != result_id
+                    or result_doc.get("producer_run_id") != result.get("producer_run_id")):
+                raise WorkflowError("cached result producer identity changed")
+            if any(stored[field] != result_doc.get(field) for field in (
+                "feature_ref", "definition_hash", "source_ref", "computation_fingerprint",
+                "producer_run_id", "producer_work_key",
+            )):
+                raise WorkflowError("FeatureResult index identity disagrees with its immutable document")
+            if (stored["split_id"] != result_doc.get("split_ref", {}).get("split_id")
+                    or stored["scope_json"] != canonical_json(result_doc.get("scope"))
+                    or stored["required_history_json"] != canonical_json(
+                        result_doc.get("required_history"))):
+                raise WorkflowError("FeatureResult index scope disagrees with its immutable document")
+            target_plan, target_work, _ = self._research_plan_work(connection, run_id, work_key)
+            producer_run_id = result_doc.get("producer_run_id")
+            producer_work_key = result_doc.get("producer_work_key")
+            if (not isinstance(producer_run_id, str) or not isinstance(producer_work_key, str)
+                    or cache_source_run_id != producer_run_id):
+                raise WorkflowError("cached result source must name its actual producer Run")
+            producer_plan, producer_work, producer_work_by_key = self._research_plan_work(
+                connection, producer_run_id, producer_work_key,
+            )
+            producer_stage = _fetchone(
+                connection,
+                "SELECT stage_run_id FROM stage_runs WHERE run_id=? AND work_key=?",
+                (producer_run_id, producer_work_key),
+            )
+            if producer_stage is None:
+                raise WorkflowError("cached result producer work is not registered")
+            self._assert_feature_result_identity(
+                result_doc, producer_plan, producer_work,
+                producer_run_id=producer_run_id, producer_work_key=producer_work_key,
+                producer_stage_run_id=producer_stage["stage_run_id"],
+            )
+            self._assert_feature_result_identity(
+                result_doc, target_plan, target_work,
+                producer_run_id=producer_run_id, producer_work_key=producer_work_key,
+            )
+            self._assert_feature_result_inputs(
+                connection, result_doc, producer_plan, producer_work, producer_work_by_key,
+                producer_run_id=producer_run_id,
+            )
+            self._assert_feature_result_artifacts(result_doc, artifacts)
+            produced_link = _fetchone(
+                connection,
+                "SELECT link_id FROM run_result_links WHERE run_id=? AND work_key=? "
+                "AND result_id=? AND relation='PRODUCED'",
+                (producer_run_id, producer_work_key, result_id),
+            )
+            if produced_link is None:
+                raise WorkflowError("cached FeatureResult has no registered producer link")
+            current = StageStatus(stage["status"])
+            linked = _fetchone(
+                connection,
+                "SELECT link_id FROM run_result_links WHERE run_id=? AND work_key=? AND result_id=?",
+                (run_id, work_key, result_id),
+            )
+            if current in {StageStatus.SUCCEEDED, StageStatus.CACHED}:
+                state_event = _fetchone(
+                    connection,
+                    "SELECT fields_json FROM stage_state_events WHERE stage_run_id=? AND state=? "
+                    "ORDER BY event_id DESC LIMIT 1",
+                    (stage_run_id, current.value),
+                )
+                active_result_id = (json.loads(state_event["fields_json"]).get("result_id")
+                                    if state_event else None)
+                if linked is not None and active_result_id == result_id:
+                    return {"outcome": "existing", "result_id": result_id}
+                if current == StageStatus.SUCCEEDED:
+                    raise WorkflowError("cannot replace an already successful work result with cache")
+                raise WorkflowError("a different cached result requires explicit work requeue")
+            if current not in {StageStatus.PENDING, StageStatus.FAILED, StageStatus.BLOCKED}:
+                raise WorkflowError(f"cannot cache result from work state {current.value}")
+            artifacts_json = canonical_json({key: ref.to_dict()
+                                             for key, ref in sorted(artifacts.items())})
+            metrics_json = canonical_json(metrics)
+            if linked is None:
+                connection.execute(
+                    "INSERT INTO run_result_links(run_id,work_key,result_id,relation,created_at) "
+                    "VALUES(?,?,?,?,?)",
+                    (run_id, work_key, result_id, "CACHED", timestamp),
+                )
+            fields = {
+                "status": StageStatus.CACHED.value,
+                "artifacts_json": artifacts_json,
+                "metrics_json": metrics_json,
+                "warnings_json": canonical_json([]),
+                "finished_at": timestamp,
+                "error_json": None,
+                "source_stage_run_id": producer_stage["stage_run_id"],
+            }
+            assignments = ", ".join(f"{key}=?" for key in fields)
+            connection.execute(f"UPDATE stage_runs SET {assignments} WHERE stage_run_id=?",
+                               [*fields.values(), stage_run_id])
+            connection.execute(
+                "INSERT INTO stage_state_events(stage_run_id,state,attempt,fields_json,created_at) "
+                "VALUES(?,?,?,?,?)",
+                (stage_run_id, StageStatus.CACHED.value, 0,
+                 canonical_json({**fields, "cache_source_run_id": cache_source_run_id,
+                                "result_id": result_id}), timestamp),
+            )
+            return {"outcome": "existing" if linked is not None else "linked",
+                    "result_id": result_id}
+
+        return self._call(link)
+
+    def get_feature_result(self, result_id: str) -> dict[str, Any] | None:
+        row = self._call(lambda connection: _fetchone(
+            connection, "SELECT result_json FROM feature_results WHERE result_id=?", (result_id,)
+        ))
+        if row is None:
+            return None
+        result = json.loads(row["result_json"])
+        result["health_checks"] = self._feature_result_health(result_id)
+        return result
+
+    def find_feature_result_candidates(
+        self, *, feature_ref: str, definition_hash: str, source_ref: str, split_id: str,
+        scope: Mapping[str, Any], required_history: Mapping[str, Any],
+    ) -> list[dict[str, Any]]:
+        rows = self._call(lambda connection: _fetchall(
+            connection,
+            "SELECT result_id,result_json FROM feature_results WHERE feature_ref=? "
+            "AND definition_hash=? AND source_ref=? AND split_id=? AND scope_json=? "
+            "AND required_history_json=? ORDER BY created_at DESC,result_id",
+            (feature_ref, definition_hash, source_ref, split_id, canonical_json(scope),
+             canonical_json(required_history)),
+        ))
+        return [self.get_feature_result(row["result_id"]) for row in rows]
+
+    def list_feature_results(self, *, run_id: str | None = None) -> list[dict[str, Any]]:
+        if run_id is None:
+            rows = self._call(lambda connection: _fetchall(
+                connection, "SELECT result_id FROM feature_results ORDER BY created_at,result_id"
+            ))
+        else:
+            rows = self._call(lambda connection: _fetchall(
+                connection,
+                "SELECT DISTINCT result_id FROM run_result_links WHERE run_id=? "
+                "ORDER BY result_id", (run_id,),
+            ))
+        return [self.get_feature_result(row["result_id"]) for row in rows]
+
+    def list_run_result_links(self, run_id: str) -> list[dict[str, Any]]:
+        rows = self._call(lambda connection: _fetchall(
+            connection,
+            "SELECT l.run_id,l.work_key,l.result_id,l.relation,l.created_at,r.result_json "
+            "FROM run_result_links l JOIN feature_results r USING(result_id) "
+            "WHERE l.run_id=? ORDER BY l.link_id", (run_id,),
+        ))
+        return [{"run_id": row["run_id"], "work_key": row["work_key"],
+                 "result_id": row["result_id"], "relation": row["relation"],
+                 "created_at": row["created_at"],
+                 "result": {**json.loads(row["result_json"]),
+                            "health_checks": self._feature_result_health(row["result_id"])}}
+                for row in rows]
+
+    def append_feature_result_health(self, *, result_id: str, status: str,
+                                     reason: str | None = None,
+                                     details: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        if status not in {"available", "missing", "invalid", "unverified"}:
+            raise ValueError("health status must be available, missing, invalid, or unverified")
+        timestamp = utc_now()
+
+        def append(connection: duckdb.DuckDBPyConnection) -> dict[str, Any]:
+            if _fetchone(connection, "SELECT result_id FROM feature_results WHERE result_id=?",
+                         (result_id,)) is None:
+                raise WorkflowError(f"unknown FeatureResult: {result_id}")
+            cursor = connection.execute(
+                "INSERT INTO feature_result_health(result_id,status,reason,checked_at,details_json) "
+                "VALUES(?,?,?,?,?) RETURNING health_id",
+                (result_id, status, reason, timestamp, canonical_json(details or {})),
+            )
+            return {"health_id": int(cursor.fetchone()[0]), "result_id": result_id,
+                    "status": status, "reason": reason, "checked_at": timestamp,
+                    "details": dict(details or {})}
+
+        return self._call(append)
+
+    def _feature_result_health(self, result_id: str) -> list[dict[str, Any]]:
+        rows = self._call(lambda connection: _fetchall(
+            connection,
+            "SELECT health_id,status,reason,checked_at,details_json FROM feature_result_health "
+            "WHERE result_id=? ORDER BY health_id", (result_id,),
+        ))
+        return [{**row, "details": json.loads(row["details_json"])} for row in rows]
+
+    def update_research_run_summary(self, run_id: str, *, status: str,
+                                    summary: Mapping[str, Any]) -> None:
+        timestamp = utc_now()
+
+        def update(connection: duckdb.DuckDBPyConnection) -> None:
+            if _fetchone(connection,
+                         "SELECT run_id FROM runs WHERE run_id=? AND research_study_id IS NOT NULL",
+                         (run_id,)) is None:
+                raise WorkflowError(f"unknown research run_id: {run_id}")
+            connection.execute(
+                "UPDATE runs SET status=?,research_summary_json=?,updated_at=? WHERE run_id=?",
+                (status, canonical_json(summary), timestamp, run_id),
+            )
+
+        self._call(update)
+
+    def list_research_runs(self) -> list[dict[str, Any]]:
+        rows = self._call(lambda connection: _fetchall(
+            connection,
+            "SELECT run_id FROM runs WHERE research_study_id IS NOT NULL ORDER BY created_at,run_id",
+        ))
+        return [self.get_run(row["run_id"]) for row in rows]
 
     def find_cache(self, stage_name: str, stage_version: str, cache_key: str) -> dict[str, Any] | None:
         row = self._call(lambda connection: _fetchone(

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from quantsage_discovery.core.artifacts import ArtifactStore
 from quantsage_discovery.core.registry import Registry
 
 from .catalog import FeatureCatalog
@@ -87,6 +88,23 @@ class ResearchService:
 
     def get_run(self, run_id: str) -> dict[str, Any]:
         return self._run_planner().get_run(run_id)
+
+    def execute_run(self, run_id: str, *, fault_hook=None) -> dict[str, Any]:
+        return self._run_executor(fault_hook=fault_hook).execute_run(run_id)
+
+    def resume_run(self, run_id: str, *, fault_hook=None) -> dict[str, Any]:
+        return self._run_executor(fault_hook=fault_hook).resume_run(run_id)
+
+    def recover_runs(self, run_id: str | None = None) -> dict[str, Any]:
+        return self._run_executor().recover(run_id)
+
+    def _run_executor(self, *, fault_hook=None):
+        from .execution import ResearchExecutor
+
+        return ResearchExecutor(
+            self._registry, ArtifactStore(self._registry.path.parent / "artifacts"),
+            self._catalog, fault_hook=fault_hook,
+        )
 
     def _run_planner(self):
         from .planner import RunPlanner
