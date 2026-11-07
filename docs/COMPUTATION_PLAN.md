@@ -20,6 +20,7 @@
 | 04-A | 已完成 432 名称/48 pending、多输入窗口 AST、端点/reset/审计和真实 ready 子集 | 05-A 消费 business refs；完整 432 数值仍受 pending/tick metadata 限制 |
 | 05-A | 已完成固定 session 网格、完整 trailing W、基础描述/质量、primitive-only 与真实 mean/std | 05-B 增加 catch22/tsfeatures，不修改 05-A 窗口身份 |
 | 05-B | 已完成 catch22 0.4.5、tsfeatures 1.1.1/R 4.4.3 锁、真实 goldens、22+8 目录与真实 selected Run | E2E 使用真实业务 refs 验证 A/B/C 与复用 |
+| E2E A/B/C | 已完成真实 ready-subset A→Review→B→C、跨 Run 复用、单定义扩展、NO_WORK/pending 与故障恢复证据 | 用户 metadata/F07-F08 和 Step 06–12 保持外部/范围限制 |
 | 冻结 Step 02 | 已有 79 个月接入和独立 consumer 证据 | 只读复用入口及 manifests；不重跑接入，不改冻结报告/文件 |
 | 用户行情 metadata | 用户稍后提供实际文件，目前要求给好格式 | 先交模板、校验器及不依赖缺失字段的计算；真实 tick 验收待用户文件，不套用历史参考表充当用户输入 |
 
@@ -320,4 +321,4 @@ Python 移植须先取得**实际固定 R 参考运行**的 golden：记录输�
 
 主代理负责依赖/契约冲突、集成与最终状态；测试代理独立验证公开入口和序列化产物，不能为迎合实现修改预期公式。读审查核对需求R01–R16、模块边界和未测风险。source freeze后再运行依赖代码指纹的plan/execute/cache测试：当前指纹包含package源码，测试期间修改源码会合法触发PLAN_CHANGED，不能删除该保护让测试变绿。
 
-接续顺序为：01-G → 02-A → 03-A → 03-B → 04-A → 05-A → 05-B（完成） → E2E。每步只在自身验收证据齐备后推进；外部输入不足的验收明确保留，不把待验写成通过。02-A 的真实 metadata 补充是后续 DataSource 版本操作，不重做行情接入。
+接续顺序为：01-G → 02-A → 03-A → 03-B → 04-A → 05-A → 05-B → E2E（ready-subset 完成）。每步只在自身验收证据齐备后推进；外部输入不足的验收明确保留，不把待验写成通过。02-A 的真实 metadata 补充是后续 DataSource 版本操作，不重做行情接入。

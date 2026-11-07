@@ -2,7 +2,7 @@
 
 ## 05-A primitive-only sampling and descriptions — 2026-11-07
 
-**Status: COMPLETE for 05-A. The 05-B backend increment is recorded below; overall Step 05 remains PARTIAL at the segment-summary/E2E boundary.**
+**Status: COMPLETE for 05-A. The 05-B backend increment is recorded below; overall Step 05 remains PARTIAL only at the retrospective segment-summary boundary.**
 
 ### Delivered behavior
 
@@ -59,7 +59,7 @@ Next increment after 05-A was: **05-B**.
 
 ## 05-B catch22 and fixed tsfeatures backends — 2026-11-07
 
-**Status: COMPLETE for 05-B. Overall Step 05 remains PARTIAL pending retrospective segment-summary delivery and E2E A/B/C evidence.**
+**Status: COMPLETE for 05-B. Overall Step 05 remains PARTIAL pending retrospective segment-summary delivery.**
 
 ### Backend lock
 
@@ -122,6 +122,6 @@ Commands actually run:
 
 Complete suite: 314 passed. Full-project Ruff: passed. Tests cover the exact 22-name catalog, selected-only catch22 invocation, real locked-R golden equivalence, ARCH regression `R²`, spectral entropy, crossing ties, block standardisation, explicit short/constant reasons, full-baseline versus custom-subset labels, 256-sample gating, statistical audit metadata, and future-prefix invariance through both backends.
 
-Limits: this Run uses primitive input and selected metrics, not a real business-ref A/B/C closure. Retrospective segment-summary mode and final E2E evidence remain pending. No Atlas, conditional baseline, anomaly or null model was fabricated.
+Limits: this Run uses primitive input and selected metrics. The separate ready Step 02–05 business-ref A/B/C closure is recorded in [Step 13 RESULTS](../13_end_to_end_integration/RESULTS.md). Retrospective segment-summary mode remains pending. No Atlas, conditional baseline, anomaly or null model was fabricated.
 
 Next increment: **E2E A/B/C**.

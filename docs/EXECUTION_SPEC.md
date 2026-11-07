@@ -1,6 +1,6 @@
 # Study / FeatureSet / Run 分步执行规格
 
-版本：`research_execution_v1`。日期：2026-11-07。状态：**连续分步实施中：01-A～01-G、02-A、03-A～03-B、04-A、05-A～05-B 已完成；下一增量 E2E A/B/C**。
+版本：`research_execution_v1`。日期：2026-11-07。状态：**本规格的实现增量与 ready-subset E2E A/B/C 已完成；真实用户 metadata、F07/F08 语义和后续 Step 06–12 保持显式阻断/范围外**。
 
 本文把需求和实施设计拆成可逐项交付的工程增量，范围为 Step 01 管理/执行扩展和 Step 02–05 数据/特征闭环。创建本文不表示任何增量已实现，也不启动代码实现、依赖安装或全量数据重跑。
 
@@ -343,10 +343,10 @@ python -m ruff check quantsage_discovery scripts tests
 | 04-A | COMPLETE，2026-11-07 | [ready business 子集结果](steps/04_business_features/RESULTS.md#04-a-ready-business-window-subset--2026-11-07)；432 名称/48 pending、48 个真实工作、全套 296 项测试及 Ruff 通过 |
 | 05-A | COMPLETE，2026-11-07 | [primitive-only 采样/描述结果](steps/05_statistical_features/RESULTS.md#05-a-primitive-only-sampling-and-descriptions--2026-11-07)；真实 session 起点、输入白名单、mean/std Run、全套 302 项测试与 Ruff 通过 |
 | 05-B | COMPLETE，2026-11-07 | [catch22 / fixed tsfeatures 结果](steps/05_statistical_features/RESULTS.md#05-b-catch22-and-fixed-tsfeatures-backends--2026-11-07)；22+8、真实 R golden、selected-only Run、全套 314 项测试与 Ruff 通过 |
-| E2E A/B/C | NOT_STARTED | 按依赖顺序自动推进 |
+| E2E A/B/C | COMPLETE for ready subset，2026-11-07 | [真实 A/B/C 结果](steps/13_end_to_end_integration/RESULTS.md#e2e-abc-ready-subset-closure--2026-11-07)；A/B/C Run、Review、coverage、cache/identity、NO_WORK、pending BLOCKED 和 9 项故障/恢复门通过 |
 
 可复制以下提示，每次只替换一个 ID：
 
 > 阅读仓库 AGENTS.md、docs/AGENTS.md、docs/EXECUTION_SPEC.md、docs/IMPLEMENTATION_DESIGN.md、docs/COMMON_CONTRACTS.md，以及增量 `<ID>` 所属阶段的 SPEC/IMPLEMENT/VERIFY。核对上游真实完成证据，仅实现 `<ID>` 的可运行增量，不提前实现其他 stage。复用既有接口，按 schema 序列化并验证产物；没有真实上游时用合规 fixture 开发，但不冒充真实集成完成。遵守本规格已确认的 metadata、警告、缺口、端点、交易日分区和固定版本规则；不猜测 F07/F08 聚合。执行对应验收与回归，记录实际命令/结果/产物/限制并同步状态，然后停止在本增量边界。
 
-下一执行 ID：**E2E A/B/C**。F07/F08 的聚合规则仍为唯一明确保留的业务公式待决项；最大 age/间隔阈值和真实 metadata 是执行配置输入。tsfeatures 的 R/package/source/dependency/golden 锁已交付。用户真实 metadata 路径待提供，格式及校验/换版命令见 [模板说明](../configs/templates/README.md)；缺失时 tick 相关计算保持阻断，其余真实源路径可继续实施。
+当前规格内没有下一自动增量。ready Step 02–05 子集已闭环；F07/F08 的聚合规则仍为唯一明确保留的业务公式待决项，用户真实 tick/unit metadata 仍未提供。tsfeatures 的 R/package/source/dependency/golden 锁已交付。用户 metadata 路径待提供，格式及校验/换版命令见 [模板说明](../configs/templates/README.md)；缺失时 tick 相关计算保持阻断。Step 06–12 的完整研究 DAG 不属于本次 ready-subset 范围。
