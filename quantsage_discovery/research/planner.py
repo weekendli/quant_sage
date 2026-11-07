@@ -523,13 +523,18 @@ def _tick_metadata_block(feature: dict[str, Any], source: dict[str, Any],
     if product is None:
         return "TICK_SIZE_RULE_MISSING"
     day = date.fromisoformat(trade_date)
-    for rule in metadata_doc.get("tick_rules", []):
-        if rule.get("product") != product:
-            continue
-        valid_from = date.fromisoformat(rule["valid_from"])
-        valid_to = None if rule["valid_to"] is None else date.fromisoformat(rule["valid_to"])
-        if valid_from <= day and (valid_to is None or day < valid_to):
-            return None
+    product_rules = [
+        rule for rule in metadata_doc.get("tick_rules", [])
+        if rule.get("product") == product
+    ]
+    for selector in (instrument, None):
+        for rule in product_rules:
+            if rule.get("instrument_id") != selector:
+                continue
+            valid_from = date.fromisoformat(rule["valid_from"])
+            valid_to = None if rule["valid_to"] is None else date.fromisoformat(rule["valid_to"])
+            if valid_from <= day and (valid_to is None or day < valid_to):
+                return None
     return "TICK_SIZE_RULE_MISSING"
 
 

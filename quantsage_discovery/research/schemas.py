@@ -13,12 +13,37 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import pyarrow as pa
+import pyarrow.parquet as pq
+
 from quantsage_discovery.core.utils import canonical_json
 
 from .errors import ResearchValidationError
 
 _HASH_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _REF_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9_.-]*)@([1-9][0-9]*)$")
+_GAP_EVENT_TYPES = {
+    "event_id": pa.string(),
+    "event_kind": pa.string(),
+    "certainty": pa.string(),
+    "exchange": pa.string(),
+    "instrument_id": pa.string(),
+    "trade_date": pa.date32(),
+    "session_id": pa.string(),
+    "start_time": pa.timestamp("us", tz="UTC"),
+    "end_time": pa.timestamp("us", tz="UTC"),
+    "boundary": pa.string(),
+    "reason_codes": pa.list_(pa.string()),
+    "affected_fields": pa.list_(pa.string()),
+    "evidence_uri": pa.string(),
+    "evidence_sha256": pa.string(),
+    "evidence_record_id": pa.string(),
+    "raw_row_index": pa.int64(),
+    "raw_row_group_index": pa.int32(),
+    "row_count": pa.int64(),
+}
+
+
 def _invalid(path: str, message: str) -> ResearchValidationError:
     return ResearchValidationError(f"{path}: {message}", details={"path": path})
 
@@ -186,10 +211,18 @@ def _coverage(value: Any, instruments: list[str], calendar: dict[str, Any]) -> d
     return {"partitioning": "trade_date_v1", "partitions": normalized}
 
 
-def _market_metadata(ref: dict[str, str], coverage: dict[str, Any]) -> dict[str, Any]:
-    metadata = _read_json_ref(ref, "source.market_metadata_ref")
+def validate_market_metadata_document(
+    metadata: Any,
+    coverage: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Validate an immutable market-metadata document.
+
+    Tick rules are evaluated by product with a longest-prefix match and
+    half-open effective dates. When source coverage is supplied, every
+    instrument/date partition must be covered for tick-dependent work.
+    """
     required = {"metadata_id", "version", "provided_by", "source", "tick_rules"}
-    optional = {"schema_version"}
+    optional = {"schema_version", "units"}
     _object(metadata, required=required, optional=optional, path="market_metadata")
     if "schema_version" in metadata and metadata["schema_version"] != "market_metadata_v1":
         raise _invalid("market_metadata.schema_version", "must be market_metadata_v1")
@@ -198,17 +231,34 @@ def _market_metadata(ref: dict[str, str], coverage: dict[str, Any]) -> dict[str,
         raise _invalid("market_metadata.version", "must be an integer >= 1")
     _actor(metadata["provided_by"], "market_metadata.provided_by")
     _text(metadata["source"], "market_metadata.source")
+    if "units" in metadata:
+        units = _object(
+            metadata["units"],
+            required={"price_unit", "size_unit", "turnover_unit"},
+            optional=set(),
+            path="market_metadata.units",
+        )
+        for field, value in units.items():
+            _text(value, f"market_metadata.units.{field}")
     if not isinstance(metadata["tick_rules"], list) or not metadata["tick_rules"]:
         raise _invalid("market_metadata.tick_rules", "must be a non-empty array")
-    ranges: dict[str, list[tuple[date, date | None]]] = {}
+    ranges: dict[tuple[str, str | None], list[tuple[date, date | None]]] = {}
     normalized_rules = []
     for index, rule in enumerate(metadata["tick_rules"]):
         path = f"market_metadata.tick_rules[{index}]"
         rule = _object(rule, required={"product", "valid_from", "valid_to", "tick_size", "unit"},
-                       optional=set(), path=path)
+                       optional={"instrument_id"}, path=path)
         product = _text(rule["product"], f"{path}.product")
         if product not in {"T", "TF", "TS", "TL"}:
             raise _invalid(f"{path}.product", "must be T, TF, TS, or TL")
+        instrument_id = None
+        if "instrument_id" in rule:
+            instrument_id = _text(rule["instrument_id"], f"{path}.instrument_id")
+            if not instrument_id.startswith(product):
+                raise _invalid(
+                    f"{path}.instrument_id",
+                    "must start with the declared product prefix",
+                )
         start = _date(rule["valid_from"], f"{path}.valid_from")
         end = None if rule["valid_to"] is None else _date(rule["valid_to"], f"{path}.valid_to")
         if end is not None and end <= start:
@@ -222,16 +272,22 @@ def _market_metadata(ref: dict[str, str], coverage: dict[str, Any]) -> dict[str,
             raise _invalid(f"{path}.tick_size", "must be a positive decimal string")
         if rule["unit"] != "quoted_price_unit":
             raise _invalid(f"{path}.unit", "must be quoted_price_unit")
-        ranges.setdefault(product, []).append((start, end))
+        ranges.setdefault((product, instrument_id), []).append((start, end))
         normalized_rules.append({"product": product, "valid_from": start.isoformat(),
                                  "valid_to": None if end is None else end.isoformat(),
                                  "tick_size": tick_text, "unit": rule["unit"]})
-    for product, product_ranges in ranges.items():
-        product_ranges.sort(key=lambda interval: interval[0])
-        for previous, following in pairwise(product_ranges):
+        if instrument_id is not None:
+            normalized_rules[-1]["instrument_id"] = instrument_id
+    for (product, instrument_id), selector_ranges in ranges.items():
+        selector_ranges.sort(key=lambda interval: interval[0])
+        for previous, following in pairwise(selector_ranges):
             if previous[1] is None or following[0] < previous[1]:
                 raise _invalid("market_metadata.tick_rules",
-                               f"overlapping effective dates for product {product}")
+                               "overlapping effective dates for "
+                               f"{instrument_id or f'product {product}'}")
+
+    if coverage is None:
+        return {**metadata, "tick_rules": normalized_rules}
 
     for partition in coverage["partitions"]:
         instrument = partition["instrument_id"]
@@ -241,14 +297,191 @@ def _market_metadata(ref: dict[str, str], coverage: dict[str, Any]) -> dict[str,
             raise _invalid("market_metadata.tick_rules",
                            f"no tick rule product prefix covers {instrument}")
         product = max(products, key=len)
-        if product not in ranges:
+        day = date.fromisoformat(partition["trade_date"])
+        candidates = (
+            ranges.get((product, instrument), [])
+            + ranges.get((product, None), [])
+        )
+        if not candidates:
             raise _invalid("market_metadata.tick_rules",
                            f"no tick rule exists for product {product} covering {instrument}")
-        day = date.fromisoformat(partition["trade_date"])
-        if not any(start <= day and (end is None or day < end) for start, end in ranges[product]):
+        if not any(start <= day and (end is None or day < end)
+                   for start, end in candidates):
             raise _invalid("market_metadata.tick_rules",
                            f"tick rules do not cover {instrument} on {day.isoformat()}")
     return {**metadata, "tick_rules": normalized_rules}
+
+
+def _market_metadata(ref: dict[str, str], coverage: dict[str, Any]) -> dict[str, Any]:
+    return validate_market_metadata_document(
+        _read_json_ref(ref, "source.market_metadata_ref"),
+        coverage,
+    )
+
+
+def validate_gap_manifest_document(manifest: Any) -> dict[str, Any]:
+    """Validate the versioned gap/reset/interval evidence manifest."""
+    required = {
+        "schema_version", "policy_version", "source", "summary", "source_date_gaps",
+        "raw_interval_semantics", "events_schema_version", "events_ref", "generated_from",
+    }
+    optional = {"warning_semantics", "adapter_evidence"}
+    manifest = _object(
+        manifest, required=required, optional=optional, path="gap_manifest",
+    )
+    if manifest["schema_version"] != "gap_manifest_v1":
+        raise _invalid("gap_manifest.schema_version", "must be gap_manifest_v1")
+    if manifest["policy_version"] != "gap_policy_v1":
+        raise _invalid("gap_manifest.policy_version", "must be gap_policy_v1")
+    if manifest["events_schema_version"] != "gap_events_v1":
+        raise _invalid("gap_manifest.events_schema_version", "must be gap_events_v1")
+    source = _object(
+        manifest["source"],
+        required={"data_snapshot_id", "onboarding_entry", "onboarding_manifest"},
+        optional={"split_id"},
+        path="gap_manifest.source",
+    )
+    _text(source["data_snapshot_id"], "gap_manifest.source.data_snapshot_id")
+    for field in ("onboarding_entry", "onboarding_manifest"):
+        _validate_ref(source[field], f"gap_manifest.source.{field}")
+    if source.get("split_id") is not None:
+        _text(source["split_id"], "gap_manifest.source.split_id")
+
+    summary = _object(
+        manifest["summary"],
+        required={
+            "input_rows", "accepted_rows", "quarantined_rows", "source_date_gap_count",
+            "quarantine_event_count", "source_interval_start_unknown_count",
+            "cumulative_reset_rows",
+        },
+        optional={
+            "volume_increment_mismatch_rows", "turnover_increment_mismatch_rows",
+            "combined_increment_mismatch_rows",
+        },
+        path="gap_manifest.summary",
+    )
+    for name, value in summary.items():
+        if type(value) is not int or value < 0:
+            raise _invalid(f"gap_manifest.summary.{name}", "must be a non-negative integer")
+    if summary["input_rows"] != summary["accepted_rows"] + summary["quarantined_rows"]:
+        raise _invalid("gap_manifest.summary", "input_rows must equal accepted_rows + quarantined_rows")
+
+    gaps = manifest["source_date_gaps"]
+    if not isinstance(gaps, list):
+        raise _invalid("gap_manifest.source_date_gaps", "must be an array")
+    seen_dates = set()
+    for index, gap in enumerate(gaps):
+        path = f"gap_manifest.source_date_gaps[{index}]"
+        gap = _object(
+            gap,
+            required={"exchange", "trade_date", "reason", "certainty"},
+            optional={"instrument_id", "session_id"},
+            path=path,
+        )
+        _text(gap["exchange"], f"{path}.exchange")
+        day = _date(gap["trade_date"], f"{path}.trade_date").isoformat()
+        if gap["reason"] != "SOURCE_DATE_MISSING":
+            raise _invalid(f"{path}.reason", "must be SOURCE_DATE_MISSING")
+        if gap["certainty"] != "CONFIRMED_SOURCE_ABSENCE":
+            raise _invalid(f"{path}.certainty", "must be CONFIRMED_SOURCE_ABSENCE")
+        key = (gap["exchange"], gap.get("instrument_id"), day, gap.get("session_id"))
+        if key in seen_dates:
+            raise _invalid(path, "duplicate source-date gap")
+        seen_dates.add(key)
+
+    interval = _object(
+        manifest["raw_interval_semantics"],
+        required={
+            "volume_field", "turnover_field", "differencing", "start_status",
+            "unknown_start_policy",
+        },
+        optional={"warning_only"},
+        path="gap_manifest.raw_interval_semantics",
+    )
+    if interval["volume_field"] != "TRADEVOLUME" or interval["turnover_field"] != "TRADEAMOUNT":
+        raise _invalid(
+            "gap_manifest.raw_interval_semantics",
+            "native interval fields must be TRADEVOLUME and TRADEAMOUNT",
+        )
+    if interval["differencing"] != "forbidden":
+        raise _invalid(
+            "gap_manifest.raw_interval_semantics.differencing",
+            "must be forbidden",
+        )
+    if interval["start_status"] not in {"known", "unknown"}:
+        raise _invalid(
+            "gap_manifest.raw_interval_semantics.start_status",
+            "must be known or unknown",
+        )
+    if interval.get("warning_only") is not True:
+        raise _invalid(
+            "gap_manifest.raw_interval_semantics.warning_only",
+            "volume reconciliation warnings must remain warning-only",
+        )
+
+    events_ref = _validate_ref(manifest["events_ref"], "gap_manifest.events_ref")
+    event_path = _local_path(events_ref, "gap_manifest.events_ref")
+    if _file_sha256(event_path, "gap_manifest.events_ref") != events_ref["content_hash"]:
+        raise _invalid("gap_manifest.events_ref", "referenced gap event file hash does not match")
+    try:
+        event_file = pq.ParquetFile(event_path)
+        event_schema = event_file.schema_arrow
+    except Exception as exc:
+        raise _invalid("gap_manifest.events_ref", f"cannot read gap events Parquet: {exc}") from exc
+    expected_fields = [
+        pa.field(name, dtype, nullable=(name not in {
+            "event_id", "event_kind", "certainty", "exchange", "boundary",
+            "reason_codes", "affected_fields", "evidence_uri", "evidence_sha256",
+            "row_count",
+        }))
+        for name, dtype in _GAP_EVENT_TYPES.items()
+    ]
+    if event_schema.names != list(_GAP_EVENT_TYPES):
+        raise _invalid("gap_manifest.events_ref", "gap event fields do not match gap_events_v1")
+    expected_schema = pa.schema(expected_fields)
+    if not event_schema.equals(expected_schema, check_metadata=False):
+        raise _invalid("gap_manifest.events_ref", "gap event types do not match gap_events_v1")
+    expected_event_rows = (
+        summary["source_date_gap_count"]
+        + summary["quarantine_event_count"]
+        + summary["source_interval_start_unknown_count"]
+    )
+    if event_file.metadata.num_rows != expected_event_rows:
+        raise _invalid(
+            "gap_manifest.events_ref",
+            "event row count does not match the summary event partitions",
+        )
+    generated_from = manifest["generated_from"]
+    if not isinstance(generated_from, list) or not generated_from:
+        raise _invalid("gap_manifest.generated_from", "must be a non-empty array of refs")
+    seen_refs = set()
+    for index, raw_ref in enumerate(generated_from):
+        ref = _validate_ref(raw_ref, f"gap_manifest.generated_from[{index}]")
+        key = (ref["uri"], ref["content_hash"])
+        if key in seen_refs:
+            raise _invalid("gap_manifest.generated_from", "refs must be unique")
+        seen_refs.add(key)
+        if _file_sha256(_local_path(ref, f"gap_manifest.generated_from[{index}]"),
+                        f"gap_manifest.generated_from[{index}]") != ref["content_hash"]:
+            raise _invalid(f"gap_manifest.generated_from[{index}]", "content hash does not match")
+    if "adapter_evidence" in manifest:
+        adapter_evidence = manifest["adapter_evidence"]
+        if not isinstance(adapter_evidence, dict) or not adapter_evidence:
+            raise _invalid(
+                "gap_manifest.adapter_evidence",
+                "must be a non-empty object of artifact refs",
+            )
+        for name, raw_ref in adapter_evidence.items():
+            path = f"gap_manifest.adapter_evidence.{name}"
+            _text(name, f"{path}.name")
+            ref = _validate_ref(raw_ref, path)
+            if _file_sha256(_local_path(ref, path), path) != ref["content_hash"]:
+                raise _invalid(path, "content hash does not match")
+    return manifest
+
+
+def _gap_manifest(ref: dict[str, str]) -> dict[str, Any]:
+    return validate_gap_manifest_document(_read_json_ref(ref, "source.gap_manifest_ref"))
 
 
 def validate_source_document(document: Any) -> dict[str, Any]:
@@ -425,9 +658,10 @@ def validate_source_document(document: Any) -> dict[str, Any]:
 
     if "market_metadata_ref" in refs:
         _market_metadata(refs["market_metadata_ref"], coverage)
-    for optional_ref in ("gap_manifest_ref", "quality_ref"):
-        if optional_ref in refs:
-            _read_json_ref(refs[optional_ref], f"source.{optional_ref}")
+    if "gap_manifest_ref" in refs:
+        _gap_manifest(refs["gap_manifest_ref"])
+    if "quality_ref" in refs:
+        _read_json_ref(refs["quality_ref"], "source.quality_ref")
 
     if not isinstance(source["coverage"], dict):
         raise _invalid("source.coverage", "must be an object")

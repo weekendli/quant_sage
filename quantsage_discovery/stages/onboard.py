@@ -889,7 +889,11 @@ class OnboardStage:
         rule_examples: dict[str, list[dict[str, Any]]] = {}
         source_order_reorders = 0
         increment_mismatches = 0
+        volume_increment_mismatches = 0
+        turnover_increment_mismatches = 0
         cumulative_resets = 0
+        volume_cumulative_resets = 0
+        turnover_cumulative_resets = 0
         identical_event_groups = 0
         identical_event_rows = 0
         identical_event_extra_rows = 0
@@ -1102,13 +1106,26 @@ class OnboardStage:
                         "AND TRADEVOLUME IS NOT NULL AND TOTALVOLUME - prior_volume <> TRADEVOLUME), "
                         "count(*) FILTER (WHERE prior_volume IS NOT NULL AND TOTALVOLUME < prior_volume), "
                         "count(*) FILTER (WHERE prior_amount IS NOT NULL AND TOTALAMOUNT >= prior_amount "
-                        "AND TRADEAMOUNT IS NOT NULL AND TOTALAMOUNT - prior_amount <> TRADEAMOUNT) "
+                        "AND TRADEAMOUNT IS NOT NULL AND TOTALAMOUNT - prior_amount <> TRADEAMOUNT), "
+                        "count(*) FILTER (WHERE prior_amount IS NOT NULL AND TOTALAMOUNT < prior_amount), "
+                        "count(*) FILTER (WHERE (prior_volume IS NOT NULL AND TOTALVOLUME < prior_volume) "
+                        "OR (prior_amount IS NOT NULL AND TOTALAMOUNT < prior_amount)) "
                         "FROM ordered"
                     ).fetchone()
-                    file_increment_mismatches = int(increment_stats[0] or 0) + int(increment_stats[2] or 0)
-                    file_cumulative_resets = int(increment_stats[1] or 0)
+                    file_volume_mismatches = int(increment_stats[0] or 0)
+                    file_volume_resets = int(increment_stats[1] or 0)
+                    file_turnover_mismatches = int(increment_stats[2] or 0)
+                    file_turnover_resets = int(increment_stats[3] or 0)
+                    file_cumulative_resets = int(increment_stats[4] or 0)
+                    file_increment_mismatches = (
+                        file_volume_mismatches + file_turnover_mismatches
+                    )
                     increment_mismatches += file_increment_mismatches
+                    volume_increment_mismatches += file_volume_mismatches
+                    turnover_increment_mismatches += file_turnover_mismatches
                     cumulative_resets += file_cumulative_resets
+                    volume_cumulative_resets += file_volume_resets
+                    turnover_cumulative_resets += file_turnover_resets
                     if (file_increment_mismatches or file_cumulative_resets) and len(
                         rule_examples.setdefault("CUMULATIVE_INCREMENT_RECONCILIATION", [])
                     ) < 3:
@@ -1316,7 +1333,11 @@ class OnboardStage:
              "outcome": "WARN" if increment_mismatches or cumulative_resets else "PASS",
              "hit_count": increment_mismatches + cumulative_resets, "denominator": raw_rows,
              "threshold": None, "increment_mismatch_rows": increment_mismatches,
+             "volume_increment_mismatch_rows": volume_increment_mismatches,
+             "turnover_increment_mismatch_rows": turnover_increment_mismatches,
              "cumulative_reset_rows": cumulative_resets,
+             "volume_cumulative_reset_rows": volume_cumulative_resets,
+             "turnover_cumulative_reset_rows": turnover_cumulative_resets,
              "example_source_refs": rule_examples.get("CUMULATIVE_INCREMENT_RECONCILIATION", []),
              "description": "Native increments compared with cumulative changes without lunch resets; values are never corrected."},
             {"rule_id": "TIME_GAP_QUANTILES", "scope": "raw_file/instrument/trade_date/session",
@@ -1471,7 +1492,11 @@ class OnboardStage:
                     "quote_age_or_staleness": "Not established; source available_time and feed update semantics are unavailable or unverified.",
                 },
                 "volume_turnover_increment_mismatch_rows": increment_mismatches,
+                "volume_increment_mismatch_rows": volume_increment_mismatches,
+                "turnover_increment_mismatch_rows": turnover_increment_mismatches,
                 "cumulative_reset_rows": cumulative_resets,
+                "volume_cumulative_reset_rows": volume_cumulative_resets,
+                "turnover_cumulative_reset_rows": turnover_cumulative_resets,
                 "rules": rules,
                 "quarantine_reason_counts": dict(sorted(quality_hits.items())),
                 "quality_flag_counts": dict(sorted(quality_flag_hits.items())),
