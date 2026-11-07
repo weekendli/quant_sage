@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 from collections.abc import Callable, Mapping
@@ -334,6 +335,79 @@ class FeatureCatalog:
         query += " ORDER BY feature_id,version"
         rows = self._call(lambda connection: _fetchall(connection, query, params))
         return [json.loads(row["document_json"]) for row in rows]
+
+    def list_feature_page(self, filters: Mapping[str, Any] | None = None, *, limit: int = 100,
+                          cursor: str | None = None) -> dict[str, Any]:
+        """Page immutable Feature identities in a stable keyset order."""
+        allowed = {"kind", "step", "status"}
+        normalized = dict(filters or {})
+        unknown = set(normalized) - allowed
+        if unknown:
+            raise ResearchValidationError(
+                f"unknown Feature filters: {', '.join(sorted(unknown))}"
+            )
+        if "kind" in normalized and normalized["kind"] not in {
+            "primitive", "business", "statistical",
+        }:
+            raise ResearchValidationError("kind filter must be primitive, business, or statistical")
+        if "step" in normalized and (
+            type(normalized["step"]) is not int or normalized["step"] not in {3, 4, 5}
+        ):
+            raise ResearchValidationError("step filter must be 3, 4, or 5")
+        if "status" in normalized and normalized["status"] not in {
+            "ready", "pending_semantics", "retired",
+        }:
+            raise ResearchValidationError("invalid Feature status filter")
+        if type(limit) is not int or not 1 <= limit <= 500:
+            raise ResearchValidationError("limit must be an integer from 1 through 500")
+        signature = hashlib.sha256(canonical_json(normalized).encode("utf-8")).hexdigest()[:24]
+        last: tuple[str, int] | None = None
+        if cursor is not None:
+            if not isinstance(cursor, str) or not cursor:
+                raise ResearchValidationError("cursor must be a non-empty string")
+            try:
+                decoded = base64.urlsafe_b64decode(cursor.encode("ascii") + b"=" * (-len(cursor) % 4))
+                payload = json.loads(decoded)
+            except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise ResearchValidationError("cursor is malformed") from exc
+            if not isinstance(payload, dict) or payload.get("query") != signature:
+                raise ResearchValidationError("cursor does not match this query")
+            key = payload.get("after")
+            if (not isinstance(key, list) or len(key) != 2 or not isinstance(key[0], str)
+                    or type(key[1]) is not int or key[1] < 1):
+                raise ResearchValidationError("cursor key is invalid")
+            last = (key[0], key[1])
+
+        clauses, params = [], []
+        for field in ("kind", "step", "status"):
+            if field in normalized:
+                clauses.append(f"{field}=?")
+                params.append(normalized[field])
+        if last is not None:
+            clauses.append("(feature_id>? OR (feature_id=? AND version>?))")
+            params.extend([last[0], last[0], last[1]])
+        query = "SELECT feature_id,version,document_json FROM features"
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY feature_id,version LIMIT ?"
+        params.append(limit + 1)
+        rows = self._call(lambda connection: _fetchall(connection, query, params))
+        truncated = len(rows) > limit
+        page = rows[:limit]
+        next_cursor = None
+        if truncated and page:
+            tail = page[-1]
+            encoded = json.dumps(
+                {"query": signature, "after": [tail["feature_id"], tail["version"]]},
+                ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+            ).encode("utf-8")
+            next_cursor = base64.urlsafe_b64encode(encoded).decode("ascii").rstrip("=")
+        return {
+            "schema_version": "feature_page_v1",
+            "items": [json.loads(row["document_json"]) for row in page],
+            "next_cursor": next_cursor,
+            "truncated": truncated,
+        }
 
     def _register_resource(self, table: str, id_col: str, resource_id: str,
                            version_col: str, version: str, document: dict[str, Any]) -> None:

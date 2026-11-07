@@ -212,3 +212,26 @@ python -m examples.research_inspect --help
 A subprocess smoke created synthetic numeric results and a cache consumer in a temporary workspace, then invoked `python -m examples.research_inspect --database ... --study ... --run ... --compare-run ... --result ... --scope ... --limit 1 --review-json ...`. It verified COMPLETE execution, one bounded row with truncation, actual Review persistence, common-date comparison and two valid observations. The 9 broader cases cover interval gaps/session identity, retained failure history and repaired health, all-NA/zero-row behavior, fast metadata health, safe column projection/pages/multiple sources, append-only Review corrections/scores/reference bounds/cross-Study cache evidence, result-scope unions, universal-versus-restricted sessions and synthetic A/B/C date/metric expansion.
 
 Initial test assumptions were corrected where window dependencies had actually computed a supposed coverage gap, where requested budget limits were safely intersected with Study limits, and where cached parent results legitimately pruned direct ancestor links. Assertions now check actual selected-result reuse and transitive lineage. No real market data or scientific outcome is claimed by these synthetic cases. Frozen onboarding artifacts and CFFEX were unchanged. Next increment: 01-G.
+
+## 01-G 本地 owner RPC 与 CLI（2026-11-07）
+
+Implemented a same-UID Unix socket owner over the existing ResearchService and the complete `quantsage research` CLI. Socket directories are private (0700), sockets are 0600, peer credentials and database identity are checked, and requests use a method whitelist with the `research_rpc_v1` JSON envelope. Legacy CLI behavior remains covered. Registry migration 8 persists explicit dispatch intents; submit remains register-only, while execute/resume are asynchronous. Startup recovers publication receipts and indexed runs before reclaiming explicit dispatch intents. Registered-only runs are not automatically executed.
+
+Limits are explicit: 8 MiB request, 16 MiB response, 100 metadata items, 500 numeric rows/100 refs, 20-second queries, eight request handlers, two execution workers and 32 dispatch slots. Planner caps are 50,000 work units and 20,000 partitions, intersected with Study/request budgets and frozen in the plan; coverage is limited to 20,000 cells. Planning rejects excessive output lower bounds before node construction and checks dependency growth before insertion. Coverage rejects excess cells before scanning Parquet. These are service guards, not OS memory/CPU isolation; unsupported CPU/memory hard budgets remain explicitly rejected. Response serialization still materializes its object before enforcing the byte cap.
+
+Final verification reported by the dedicated test agent, after the planner's O(1) partition-count correction:
+
+```bash
+/data/src/research/.venv/bin/python -m pytest -q tests/test_research_owner_rpc.py
+# 8 passed (13.61s)
+/data/src/research/.venv/bin/python -m pytest -q tests/test_research_queries.py tests/test_run_planner.py
+# 29 passed (9.39s)
+/data/src/research/.venv/bin/python -m pytest -q
+# 241 passed (48.88s), final post-correction full run
+/data/src/research/.venv/bin/python -m ruff check quantsage_discovery scripts tests examples
+# All checks passed!
+```
+
+Actual socket/process tests used the authorized execution mode because the default sandbox prohibits AF_UNIX bind. Tests cover owner lock and socket permissions, unknown/SQL-method rejection without DB mutation, request/row limits and CLI exit codes, timeout, register/retry/restart, the source/Study/catalog/FeatureSet/Run/result/Review/coverage/compare CLI loop, concurrent queries while a worker is paused, and SIGKILL after a durable receipt with one recovered attempt/result. Planner/coverage tests assert early rejection, no Run/dispatch side effects, and compatibility with budgets omitting max_work_units. The existing legacy CLI regression also passed.
+
+These are serialized synthetic sources/results and operational recovery evidence, not real Step 03–05 calculations. Real metadata, frozen-source adaptation and domain providers remain future increments. Frozen onboarding artifacts and CFFEX were unchanged. Next increment: 02-A. The accompanying [computation plan](../../COMPUTATION_PLAN.md) specifies the provider/schema seams, domain calculations, acceptance gates and subagent handoffs; its independent read-only review found no blocking P1/P2 issue.

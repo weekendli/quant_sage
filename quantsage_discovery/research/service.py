@@ -77,6 +77,11 @@ class ResearchService:
     def list_features(self, filters: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
         return self._catalog.list_features(filters)
 
+    def list_feature_page(self, filters: Mapping[str, Any] | None = None, *, limit: int = 100,
+                          cursor: str | None = None) -> dict[str, Any]:
+        """Return a bounded, stable page of registered Feature definitions."""
+        return self._catalog.list_feature_page(filters, limit=limit, cursor=cursor)
+
     def plan_run(self, request: Mapping[str, Any]) -> dict[str, Any]:
         return self._run_planner().plan_run(request)
 

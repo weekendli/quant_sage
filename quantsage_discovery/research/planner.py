@@ -47,6 +47,8 @@ _BUDGET_KEYS = {
     "max_work_units", "max_partitions", "max_cpu_seconds", "max_memory_bytes",
     "max_concurrent_jobs",
 }
+MAX_PLAN_WORK_UNITS = 50_000
+MAX_PLAN_PARTITIONS = 20_000
 _SPLIT_ROLES = {
     "train", "development", "validation", "test", "holdout", "final_holdout",
     "research", "research_only", "unassigned_research_only", "discovery",
@@ -769,6 +771,14 @@ class RunPlanner:
 
         effective_steps = sorted(set(request["allowed_steps"]) & set(study["limits"]["allowed_steps"]))
         effective_budget = self._effective_budget(request["budget"], study["limits"]["budget"])
+        effective_budget["max_work_units"] = min(
+            effective_budget.get("max_work_units", MAX_PLAN_WORK_UNITS),
+            MAX_PLAN_WORK_UNITS,
+        )
+        effective_budget["max_partitions"] = min(
+            effective_budget.get("max_partitions", MAX_PLAN_PARTITIONS),
+            MAX_PLAN_PARTITIONS,
+        )
         source_metadata = {
             f"{source['source_id']}@{source['version']}": _source_time_metadata(source)
             for source in sources
@@ -786,10 +796,61 @@ class RunPlanner:
             for item_id, item in all_items.items() if item_id in selected_items
         }
         selected_feature_refs = {ref for refs in outputs_by_item.values() for ref in refs}
+        if request["selected_item_ids"] and segments:
+            unsupported_limits = sorted(
+                set(effective_budget) & {"max_cpu_seconds", "max_memory_bytes"}
+            )
+            if unsupported_limits:
+                raise ResearchValidationError(
+                    "the current executor cannot enforce these hard resource limits",
+                    details={"unsupported_limits": unsupported_limits,
+                             "executor": "single_owner_synchronous_v1"},
+                )
+        unique_segments = {
+            (segment["source_ref"], segment["instrument_id"], segment["trade_date"],
+             segment["session_id"])
+            for segment in segments
+        }
+        planning_partitions = {
+            (segment["exchange"], segment["instrument_id"], segment["trade_date"])
+            for segment in segments
+        }
+        minimum_work_units = len(selected_feature_refs) * len(unique_segments)
+        initial_counts = {
+            "max_work_units": minimum_work_units,
+            "max_partitions": len(planning_partitions),
+        }
+        initial_exceeded = {
+            key: {"actual": count, "limit": effective_budget[key]}
+            for key, count in initial_counts.items()
+            if key in effective_budget and count > effective_budget[key]
+        }
+        if initial_exceeded:
+            raise BudgetExceededError(
+                "Run budget is smaller than the requested plan lower bound",
+                details={"counts": initial_counts, "partial": True,
+                         "effective_budget": effective_budget, "exceeded": initial_exceeded},
+            )
         source_by_ref = {f"{source['source_id']}@{source['version']}": source for source in sources}
         nodes: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
         edges: set[tuple[tuple[str, str, str, str, str], tuple[str, str, str, str, str]]] = set()
         processing: set[tuple[str, str, str, str, str]] = set()
+        node_partitions: set[tuple[str, str, str]] = set()
+
+        def enforce_node_budget(next_work_units: int, next_partition_count: int) -> None:
+            counts = {"max_work_units": next_work_units,
+                      "max_partitions": next_partition_count}
+            exceeded = {
+                key: {"actual": count, "limit": effective_budget[key]}
+                for key, count in counts.items()
+                if key in effective_budget and count > effective_budget[key]
+            }
+            if exceeded:
+                raise BudgetExceededError(
+                    "Run budget does not cover the selected dependency closure",
+                    details={"counts": counts, "partial": True,
+                             "effective_budget": effective_budget, "exceeded": exceeded},
+                )
 
         def node_key(feature_ref: str, segment: dict[str, Any]) -> tuple[str, str, str, str, str]:
             return (feature_ref, segment["source_ref"], segment["instrument_id"],
@@ -800,9 +861,13 @@ class RunPlanner:
                         associated_items: set[str] | None = None,
                         cache_only: bool = False) -> tuple[str, str, str, str, str]:
             key = node_key(feature_ref, segment)
-            feature = self._catalog.get_feature(feature_ref)
             node = nodes.get(key)
             if node is None:
+                partition = (segment["exchange"], segment["instrument_id"], segment["trade_date"])
+                next_partition_count = len(node_partitions) + (partition not in node_partitions)
+                enforce_node_budget(len(nodes) + 1, next_partition_count)
+                node_partitions.add(partition)
+                feature = self._catalog.get_feature(feature_ref)
                 node = {
                     "key": key, "feature": feature, "segment": segment,
                     "output_start": out_start, "output_end": out_end,
@@ -813,6 +878,7 @@ class RunPlanner:
                 }
                 nodes[key] = node
             else:
+                feature = node["feature"]
                 node["output_start"] = min(node["output_start"], out_start)
                 node["output_end"] = max(node["output_end"], out_end)
             if requested_item is not None:
@@ -1105,16 +1171,6 @@ class RunPlanner:
                 details={"counts": limit_details, "effective_budget": effective_budget,
                          "exceeded": exceeded},
             )
-        unsupported_limits = sorted(
-            set(effective_budget) & {"max_cpu_seconds", "max_memory_bytes"}
-        )
-        if plan_work and unsupported_limits:
-            raise ResearchValidationError(
-                "the current executor cannot enforce these hard resource limits",
-                details={"unsupported_limits": unsupported_limits,
-                         "executor": "single_owner_synchronous_v1"},
-            )
-
         requested_count = sum(item["role"] == "requested" for item in plan_work)
         dependency_count = len(plan_work) - requested_count
         blocked_count = sum(item["state"] == StageStatus.BLOCKED.value for item in plan_work)

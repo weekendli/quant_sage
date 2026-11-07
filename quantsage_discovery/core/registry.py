@@ -19,7 +19,12 @@ from typing import Any, Self, TypeVar
 import duckdb
 
 from .artifacts import artifact_path
-from .errors import RegistrySchemaError, WorkflowError, WorkspaceBusyError
+from .errors import (
+    RegistrySchemaError,
+    RunDispatchQueueFullError,
+    WorkflowError,
+    WorkspaceBusyError,
+)
 from .types import ArtifactRef, StageStatus
 from .utils import canonical_json
 
@@ -292,6 +297,21 @@ CREATE INDEX research_review_study_idx ON reviews(study_id, review_order);
 _SCHEMA_V7_CHECKSUM = hashlib.sha256(
     f"{_SCHEMA_V6_CHECKSUM}\n{_MIGRATION_V7_SQL}".encode()
 ).hexdigest()
+_MIGRATION_V8_SQL = """
+CREATE TABLE research_dispatch_queue (
+    run_id VARCHAR PRIMARY KEY,
+    status VARCHAR NOT NULL,
+    requested_at VARCHAR NOT NULL,
+    updated_at VARCHAR NOT NULL,
+    attempt INTEGER NOT NULL DEFAULT 0,
+    error_json VARCHAR
+);
+CREATE INDEX research_dispatch_state_idx
+    ON research_dispatch_queue(status, requested_at, run_id);
+""".strip()
+_SCHEMA_V8_CHECKSUM = hashlib.sha256(
+    f"{_SCHEMA_V7_CHECKSUM}\n{_MIGRATION_V8_SQL}".encode()
+).hexdigest()
 _SCHEMA_CHECKSUMS = {
     1: _SCHEMA_V1_CHECKSUM,
     2: _SCHEMA_V2_CHECKSUM,
@@ -300,8 +320,9 @@ _SCHEMA_CHECKSUMS = {
     5: _SCHEMA_V5_CHECKSUM,
     6: _SCHEMA_V6_CHECKSUM,
     7: _SCHEMA_V7_CHECKSUM,
+    8: _SCHEMA_V8_CHECKSUM,
 }
-_CURRENT_SCHEMA_VERSION = 7
+_CURRENT_SCHEMA_VERSION = 8
 _T = TypeVar("_T")
 
 
@@ -449,6 +470,7 @@ class _DatabaseOwner:
             self._apply_migration_v5(connection)
             self._apply_migration_v6(connection)
             self._apply_migration_v7(connection)
+            self._apply_migration_v8(connection)
             return
 
         rows = connection.execute(
@@ -488,6 +510,9 @@ class _DatabaseOwner:
             current = 6
         if current == 6:
             self._apply_migration_v7(connection)
+            current = 7
+        if current == 7:
+            self._apply_migration_v8(connection)
 
     @staticmethod
     def _record_schema_version(connection: duckdb.DuckDBPyConnection, version: int) -> None:
@@ -530,6 +555,12 @@ class _DatabaseOwner:
             if statement.strip():
                 connection.execute(statement)
         self._record_schema_version(connection, 7)
+
+    def _apply_migration_v8(self, connection: duckdb.DuckDBPyConnection) -> None:
+        for statement in _MIGRATION_V8_SQL.split(";"):
+            if statement.strip():
+                connection.execute(statement)
+        self._record_schema_version(connection, 8)
 
     def _shutdown(self) -> None:
         if self.pid != os.getpid():
@@ -1610,6 +1641,129 @@ class Registry:
                 (study_id,),
             ))
         return [self.get_run(row["run_id"]) for row in rows]
+
+    def enqueue_research_run(self, run_id: str, *, max_queued: int = 32) -> dict[str, Any]:
+        """Persist a bounded dispatch intent without doing numerical work inline."""
+        if not isinstance(run_id, str) or not run_id.strip():
+            raise WorkflowError("run_id must be a non-empty string")
+        if type(max_queued) is not int or max_queued < 1:
+            raise WorkflowError("max_queued must be a positive integer")
+        timestamp = utc_now()
+
+        def enqueue(connection: duckdb.DuckDBPyConnection) -> dict[str, Any]:
+            exists = _fetchone(
+                connection,
+                "SELECT run_id FROM runs WHERE run_id=? AND research_study_id IS NOT NULL",
+                (run_id,),
+            )
+            if exists is None:
+                raise WorkflowError(f"unknown research Run: {run_id}")
+            current = _fetchone(
+                connection,
+                "SELECT status,attempt FROM research_dispatch_queue WHERE run_id=?",
+                (run_id,),
+            )
+            if current is not None and current["status"] in {"QUEUED", "RUNNING"}:
+                return {"run_id": run_id, "status": current["status"], "already_queued": True}
+            queued = _fetchone(
+                connection,
+                "SELECT count(*) AS n FROM research_dispatch_queue "
+                "WHERE status IN ('QUEUED','RUNNING')",
+            )["n"]
+            if int(queued) >= max_queued:
+                raise RunDispatchQueueFullError(
+                    f"research dispatch queue is full ({max_queued})",
+                )
+            if current is None:
+                connection.execute(
+                    "INSERT INTO research_dispatch_queue"
+                    "(run_id,status,requested_at,updated_at,attempt,error_json) "
+                    "VALUES(?,'QUEUED',?,?,0,NULL)",
+                    (run_id, timestamp, timestamp),
+                )
+            else:
+                connection.execute(
+                    "UPDATE research_dispatch_queue SET status='QUEUED',requested_at=?,"
+                    "updated_at=?,error_json=NULL WHERE run_id=?",
+                    (timestamp, timestamp, run_id),
+                )
+            return {"run_id": run_id, "status": "QUEUED", "already_queued": False}
+
+        return self._call(enqueue)
+
+    def recover_research_dispatches(self) -> int:
+        """Make pre-crash claimed dispatch intents eligible for a new owner worker."""
+        timestamp = utc_now()
+
+        def recover(connection: duckdb.DuckDBPyConnection) -> int:
+            row = _fetchone(
+                connection,
+                "SELECT count(*) AS n FROM research_dispatch_queue WHERE status='RUNNING'",
+            )
+            connection.execute(
+                "UPDATE research_dispatch_queue SET status='QUEUED',updated_at=?,error_json=NULL "
+                "WHERE status='RUNNING'",
+                (timestamp,),
+            )
+            return int(row["n"])
+
+        return self._call(recover)
+
+    def claim_research_dispatches(self, *, limit: int = 1) -> list[str]:
+        """Claim a bounded page of durable intents for owner compute workers."""
+        if type(limit) is not int or not 1 <= limit <= 32:
+            raise WorkflowError("dispatch claim limit must be between 1 and 32")
+        timestamp = utc_now()
+
+        def claim(connection: duckdb.DuckDBPyConnection) -> list[str]:
+            rows = _fetchall(
+                connection,
+                "SELECT run_id FROM research_dispatch_queue WHERE status='QUEUED' "
+                "ORDER BY requested_at,run_id LIMIT ?",
+                (limit,),
+            )
+            run_ids = [row["run_id"] for row in rows]
+            for run_id in run_ids:
+                connection.execute(
+                    "UPDATE research_dispatch_queue SET status='RUNNING',attempt=attempt+1,"
+                    "updated_at=?,error_json=NULL WHERE run_id=? AND status='QUEUED'",
+                    (timestamp, run_id),
+                )
+            return run_ids
+
+        return self._call(claim)
+
+    def finish_research_dispatch(self, run_id: str, *, error: dict[str, Any] | None = None) -> None:
+        """Mark one dispatch attempt terminal; a later explicit resume can enqueue it again."""
+        if error is not None and not isinstance(error, dict):
+            raise WorkflowError("dispatch error must be an object or null")
+        timestamp = utc_now()
+        encoded = canonical_json(error) if error is not None else None
+
+        def finish(connection: duckdb.DuckDBPyConnection) -> None:
+            row = _fetchone(
+                connection,
+                "SELECT status FROM research_dispatch_queue WHERE run_id=?",
+                (run_id,),
+            )
+            if row is None:
+                return
+            connection.execute(
+                "UPDATE research_dispatch_queue SET status=?,updated_at=?,error_json=? "
+                "WHERE run_id=?",
+                ("FAILED" if error is not None else "DONE", timestamp, encoded, run_id),
+            )
+
+        self._call(finish)
+
+    def research_dispatch_status(self) -> dict[str, int]:
+        """Return bounded queue counters for the owner status endpoint."""
+        rows = self._call(lambda connection: _fetchall(
+            connection,
+            "SELECT status,count(*) AS n FROM research_dispatch_queue "
+            "GROUP BY status ORDER BY status",
+        ))
+        return {row["status"].lower(): int(row["n"]) for row in rows}
 
     def query_research_runs_page(self, study_id: str, *, start: str, end: str,
                                  instruments: Sequence[str], offset: int,

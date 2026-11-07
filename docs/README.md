@@ -4,7 +4,7 @@
 
 ## 首次使用
 
-当前 Study / FeatureSet / Run 与 Step 02–05 闭环按 [分步执行规格](EXECUTION_SPEC.md) 从 **01-A** 开始；每次只执行一个增量。该规格区分已有阶段交付与本次管理/计算扩展，不把历史 COMPLETE 当作新扩展完成。
+当前 Study / FeatureSet / Run 与 Step 02–05 闭环按 [分步执行规格](EXECUTION_SPEC.md) 的最新执行记录接续；01-A～01-F 已完成，不从头重做。每次只执行一个增量，配套阅读 [计算技术方案与执行验收手册](COMPUTATION_PLAN.md)。该规格区分已有阶段交付与本次管理/计算扩展，不把历史 COMPLETE 当作新扩展完成。
 
 1. 在仓库根目录阅读 [AGENTS.md](../AGENTS.md) 和 [implementation status](IMPLEMENTATION_STATUS.md)。
 2. 从 [STEP_INDEX.md](STEP_INDEX.md) 选择一个尚未实现的模块；Step 01 和 Step 02 已完成。
@@ -15,6 +15,7 @@
 ## 全局文档
 
 - [分步执行规格](EXECUTION_SPEC.md)：需求约束、14 个顺序增量、逐项验收、A/B/C 交付与可复制执行提示。
+- [计算技术方案与执行验收手册](COMPUTATION_PLAN.md)：当前实现接续点、Step 02–05 计算规则、接口演进、数值验收和 subagent 工作单。
 - [实施设计](IMPLEMENTATION_DESIGN.md)：DuckDB 存储、配置解析、范围依赖、执行恢复、接口及分阶段验收。
 
 - [领域模型关键字段](domain.detail.md)：四个核心模型与三个辅助记录的字段、版本、状态和引用约束。
@@ -56,4 +57,4 @@ Parquet 行情文件仅保存在本地，不纳入 Git。复现样本核验前�
 
 对于每个未完成模块：先跑该模块的 unit tests，再跑 stage integration tests；若模块读取时间序列，还需验证排序、会话、可用时间和防泄漏约束。Step 01/02 的真实测试及 CLI/全量验收证据已分别记录在实现文档中；未实现阶段不得标记为已测试。
 
-Step 01 工作流引擎和 Step 02 数据接入已完成。本次工作按要求停在 Step 02；Step 03–13 状态仍为 `NOT_STARTED`。
+Step 01 工作流引擎和 Step 02 数据接入的历史交付已完成。当前按执行 spec 接续管理扩展与 Step 02–05 计算闭环；新扩展和后续阶段的状态分别以最新执行记录为准，本文不作为验收通过证据。

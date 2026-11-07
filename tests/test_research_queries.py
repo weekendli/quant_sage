@@ -289,6 +289,45 @@ def test_coverage_uses_interval_union_actual_rows_and_exact_trade_session_time(t
             _coverage(service, selected, scope=outside_session)
 
 
+def test_coverage_cell_budget_rejects_before_parquet_scan_and_narrow_filter_works(
+    tmp_path, monkeypatch,
+):
+    from quantsage_discovery.research import queries as queries_module
+    from quantsage_discovery.research.queries import ResearchQueries
+
+    with _case(tmp_path) as (_, service, _, _, request):
+        completed = _submit_execute(service, request, "coverage-cell-budget-seed")
+        assert completed["status"] == "COMPLETE"
+        scan_calls = []
+        original_scan = ResearchQueries._scan_artifact
+
+        def tracked_scan(self, *args, **kwargs):
+            scan_calls.append(args[0]["result_id"])
+            return original_scan(self, *args, **kwargs)
+
+        monkeypatch.setattr(queries_module, "_MAX_COVERAGE_CELLS", 5)
+        monkeypatch.setattr(ResearchQueries, "_scan_artifact", tracked_scan)
+
+        with pytest.raises(ResearchValidationError) as error:
+            _coverage(service, request, verify=True)
+        assert error.value.details["reason"] == "QUERY_RESOURCE_LIMIT"
+        assert error.value.details["estimated_cells"] > error.value.details["maximum_cells"] == 5
+        assert scan_calls == []
+
+        narrowed = service.study_coverage(
+            STUDY_ID,
+            revision=request["study_revision"],
+            source_refs=request["source_refs"],
+            scope=copy.deepcopy(request["scope"]),
+            feature_set_ref=FEATURE_SET_REF,
+            item_ids=["quote"],
+            verify=True,
+        )
+        assert len(narrowed["targets"]) == 1
+        assert narrowed["targets"][0]["item_ids"] == ["quote"]
+        assert scan_calls
+
+
 def test_later_success_covers_early_failure_and_cache_links_do_not_double_count(tmp_path):
     with _case(tmp_path) as (registry, service, _, _, request):
         request["selected_item_ids"] = ["quote"]

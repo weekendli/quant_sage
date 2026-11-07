@@ -15,6 +15,7 @@ from .core.errors import WorkflowError
 from .core.registry import Registry
 from .core.research import BatchEngine, batch_status
 from .core.workflow import WorkflowEngine
+from .research_cli import add_research_parser, handle_research
 
 
 def _registry_path(config: dict[str, Any] | None, explicit: str | None = None) -> Path:
@@ -114,6 +115,7 @@ def build_parser() -> argparse.ArgumentParser:
     explain.add_argument("--artifact-id", required=True)
     _add_config_argument(explain, required=False)
     explain.add_argument("--registry")
+    add_research_parser(subparsers)
     return parser
 
 
@@ -265,6 +267,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
+        if args.command == "research":
+            return handle_research(args)
         if args.command in {"validate", "plan"}:
             return _validate_or_plan(args, args.command == "plan")
         if args.command == "run":

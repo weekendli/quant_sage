@@ -1,6 +1,6 @@
 # Study / FeatureSet / Run 分步执行规格
 
-版本：`research_execution_v1`。日期：2026-11-06。状态：**连续分步实施中：01-A/B/C/D/E/F 已完成；当前 01-G**。
+版本：`research_execution_v1`。日期：2026-11-06。状态：**连续分步实施中：01-A～01-G 已完成；下一增量 02-A**。
 
 本文把需求和实施设计拆成可逐项交付的工程增量，范围为 Step 01 管理/执行扩展和 Step 02–05 数据/特征闭环。创建本文不表示任何增量已实现，也不启动代码实现、依赖安装或全量数据重跑。
 
@@ -8,6 +8,7 @@
 
 必须配套阅读：
 
+- [计算技术方案与执行验收手册](COMPUTATION_PLAN.md)：承接当前代码的模块接缝、计算方法、逐增量验收门、数值用例和 subagent 工作单。
 - [领域模型](DOMAIN_MODEL.md)与[字段契约](domain.detail.md)：对象、字段、版本、状态和引用。
 - [实施设计](IMPLEMENTATION_DESIGN.md)：存储、并发、解析、规划、发布与恢复。
 - [工作流](WORKFLOW_STAGES.md)、[共同契约](COMMON_CONTRACTS.md)与[架构](ARCHITECTURE.md)：数据流、时间、split 和范围边界。
@@ -335,11 +336,11 @@ python -m ruff check quantsage_discovery scripts tests
 | 01-D | COMPLETE，2026-11-07 | [规划增量结果](steps/01_workflow_engine/RESULTS.md#01-d-run-规划与幂等登记2026-11-07)；17 项规划测试、全套 203 项及 Ruff 通过 |
 | 01-E | COMPLETE，2026-11-07 | [执行增量结果](steps/01_workflow_engine/RESULTS.md#01-e-执行发布与恢复2026-11-07)；18 项执行测试、全套 221 项、Ruff 及独立进程示例通过 |
 | 01-F | COMPLETE，2026-11-07 | [查询增量结果](steps/01_workflow_engine/RESULTS.md#01-f-结果覆盖review-与比较2026-11-07)；9 项查询测试、全套 230 项、Ruff 和独立进程 inspection 示例通过 |
-| 01-G | IN_PROGRESS | 本地 owner RPC 与完整 CLI |
+| 01-G | COMPLETE，2026-11-07 | [RPC/CLI 增量结果](steps/01_workflow_engine/RESULTS.md#01-g-本地-owner-rpc-与-cli2026-11-07)；8 项 RPC 验收、全套 241 项及 Ruff 通过 |
 | 02-A、03-A/B、04-A、05-A/B、E2E | NOT_STARTED | 按依赖顺序自动推进 |
 
 可复制以下提示，每次只替换一个 ID：
 
 > 阅读仓库 AGENTS.md、docs/AGENTS.md、docs/EXECUTION_SPEC.md、docs/IMPLEMENTATION_DESIGN.md、docs/COMMON_CONTRACTS.md，以及增量 `<ID>` 所属阶段的 SPEC/IMPLEMENT/VERIFY。核对上游真实完成证据，仅实现 `<ID>` 的可运行增量，不提前实现其他 stage。复用既有接口，按 schema 序列化并验证产物；没有真实上游时用合规 fixture 开发，但不冒充真实集成完成。遵守本规格已确认的 metadata、警告、缺口、端点、交易日分区和固定版本规则；不猜测 F07/F08 聚合。执行对应验收与回归，记录实际命令/结果/产物/限制并同步状态，然后停止在本增量边界。
 
-当前执行 ID：**01-G**。F07/F08 的聚合规则仍为唯一明确保留的业务公式待决项；最大 age/间隔阈值和真实 metadata 是执行配置输入，tsfeatures 精确版本锁是 05-B 交付项。用户真实 metadata 路径待提供，格式见 [模板说明](../configs/templates/README.md)。
+下一执行 ID：**02-A**。F07/F08 的聚合规则仍为唯一明确保留的业务公式待决项；最大 age/间隔阈值和真实 metadata 是执行配置输入，tsfeatures 精确版本锁是 05-B 交付项。用户真实 metadata 路径待提供，格式见 [模板说明](../configs/templates/README.md)。

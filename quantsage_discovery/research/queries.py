@@ -42,6 +42,7 @@ _DATA_META_COLUMNS = (
 _MAX_LIST_LIMIT = 500
 _MAX_READ_LIMIT = 10_000
 _MAX_READ_REFS = 100
+_MAX_COVERAGE_CELLS = 20_000
 _MAX_REVIEW_REFS = 100
 _QUERY_TIMEOUT_S = 20.0
 _REVIEW_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
@@ -1001,6 +1002,17 @@ class ResearchQueries:
         targets = self._coverage_targets(
             study, feature_set_ref=feature_set_ref, item_ids=item_ids,
         )
+        estimated_cells = len(targets) * (len(selected_sources) + len(requested_intervals))
+        if estimated_cells > _MAX_COVERAGE_CELLS:
+            raise ResearchValidationError(
+                "coverage request exceeds the bounded target/interval work limit",
+                details={
+                    "reason": "QUERY_RESOURCE_LIMIT",
+                    "estimated_cells": estimated_cells,
+                    "maximum_cells": _MAX_COVERAGE_CELLS,
+                    "suggested_filters": ["scope", "item_ids", "source_refs"],
+                },
+            )
         work_records, selected_runs = self._work_records(
             self._registry, study, requested_intervals, deadline=deadline,
         )

@@ -12,6 +12,13 @@ class WorkspaceBusyError(WorkflowError):
     retryable = True
 
 
+class RunDispatchQueueFullError(WorkflowError):
+    """The durable owner dispatch queue is at its configured bound."""
+
+    code = "RUN_QUEUE_FULL"
+    retryable = True
+
+
 class RegistrySchemaError(WorkflowError):
     """The DuckDB registry schema is unsupported or has an invalid checksum."""
 

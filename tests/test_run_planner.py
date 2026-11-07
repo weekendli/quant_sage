@@ -548,3 +548,84 @@ def test_concurrent_same_key_is_idempotent_and_conflicting_content_is_rejected_a
         assert _run_count(reopened) == 1
     finally:
         reopened.close()
+
+
+def test_dependency_expansion_budget_stops_before_over_limit_node_and_registers_nothing(
+    tmp_path, monkeypatch,
+):
+    from quantsage_discovery.research import planner as planner_module
+
+    registry, service, _, _, split_ref = _environment(tmp_path)
+    request = make_plan_request(
+        split_ref,
+        selected_item_ids=["summary"],
+        include_selection=True,
+        budget={"max_work_units": 20, "max_partitions": 20,
+                "max_concurrent_jobs": 2},
+    )
+    monkeypatch.setattr(planner_module, "MAX_PLAN_WORK_UNITS", 3)
+    feature_lookups = []
+    original_get_feature = service._catalog.get_feature
+
+    def counted_get_feature(ref):
+        feature_lookups.append(ref)
+        return original_get_feature(ref)
+
+    monkeypatch.setattr(service._catalog, "get_feature", counted_get_feature)
+    runs_before = _run_count(registry)
+    dispatches_before = registry._call(
+        lambda connection: connection.execute(
+            "SELECT COUNT(*) FROM research_dispatch_queue"
+        ).fetchone()[0]
+    )
+    try:
+        with pytest.raises(BudgetExceededError) as error:
+            service.plan_run(request)
+        details = error.value.details
+        assert details["effective_budget"]["max_work_units"] == 3
+        assert details["exceeded"]["max_work_units"]["limit"] == 3
+        assert details["counts"]["max_work_units"] == 4
+        # The fourth node is rejected before catalog lookup or dependency traversal.
+        assert len(feature_lookups) == 3
+        assert _run_count(registry) == runs_before == 0
+        dispatches_after = registry._call(
+            lambda connection: connection.execute(
+                "SELECT COUNT(*) FROM research_dispatch_queue"
+            ).fetchone()[0]
+        )
+        assert dispatches_after == dispatches_before == 0
+    finally:
+        registry.close()
+
+
+def test_plan_accepts_small_scope_with_only_partition_and_concurrency_budget(tmp_path):
+    from quantsage_discovery.research.planner import MAX_PLAN_WORK_UNITS
+
+    registry, service, _, _, split_ref = _environment(tmp_path)
+    try:
+        study = service.get_study("planning_study")
+        limits = copy.deepcopy(study["limits"])
+        limits["budget"] = {"max_partitions": 20, "max_concurrent_jobs": 4}
+        updated = service.update_study(
+            "planning_study",
+            {"limits": limits},
+            expected_revision=study["revision"],
+            actor={"kind": "agent", "id": "planner-budget-acceptance"},
+            reason="Exercise bounded planning with partition and concurrency budgets.",
+        )
+        request = make_plan_request(
+            split_ref,
+            study_revision=updated["revision"],
+            selected_item_ids=["quote"],
+            include_selection=True,
+            budget={"max_partitions": 20, "max_concurrent_jobs": 2},
+        )
+        plan = service.plan_run(request)
+        assert "max_work_units" not in request["budget"]
+        assert plan["budget"]["max_work_units"] == MAX_PLAN_WORK_UNITS
+        assert plan["budget"]["max_partitions"] == 20
+        assert plan["summary"]["work_units"] == 1
+        assert plan["status"] == "READY"
+        assert _run_count(registry) == 0
+    finally:
+        registry.close()
