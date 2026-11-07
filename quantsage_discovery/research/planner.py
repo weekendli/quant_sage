@@ -516,9 +516,15 @@ def _needs_tick_size(feature: dict[str, Any]) -> bool:
     requirements = feature.get("source_requirements", {})
     if not isinstance(requirements, dict):
         return False
-    return (requirements.get("tick_size") is True
-            or "tick_size" in requirements.get("required_metadata", [])
-            or "tick_size" in requirements.get("metadata", []))
+    if requirements.get("tick_size") is True:
+        return True
+    if "tick_size" in requirements.get("required_metadata", []):
+        return True
+    if "tick_size" in requirements.get("metadata", []):
+        return True
+    if requirements.get("tick_size_for_nonzero_space") is True:
+        return feature.get("parameters", {}).get("space") != "d0"
+    return False
 
 
 def _source_requirements_block(feature: dict[str, Any], source: dict[str, Any]) -> str | None:

@@ -71,3 +71,64 @@ The focused affected set passed 62 tests. The complete suite passed 262 tests, a
 - `quote_interarrival` is observation-time adjacency inside the frozen session, not a verified exchange update clock or quote-age claim.
 
 Next increment: **03-B**.
+
+## 03-B complete snapshot catalog and terminal inputs — 2026-11-07
+
+**Status: COMPLETE. Step 03 now has the complete decomposition; this does not claim numerical execution of all 50 names on real data.**
+
+### Catalog and implementation
+
+- Catalog `quantsage_l2_snapshot@2.0.0`, implementation `l2_snapshot_primitives_v4`.
+- The public F01–F08 snapshot catalog has exactly 50 unique names with family counts `1,5,5,15,15,3,3,3`.
+- Additional terminal definitions expose `depth_ref_5`, q25/q50/q100 target sizes, native `TRADEVOLUME`, BUYVOL/SELLVOL cumulative fields, reset markers, tick size and the existing mid/time inputs for Step 04.
+- `d0` formulas remain tick-independent; `d1/d2/d3/d5` require the exact metadata tick. F06–F08 require tick metadata. Parameters are part of the Feature definition identity.
+- Five-level parsing is shared internally. No horizon/L/W grid, Atlas baseline, future label or event/regime computation was added.
+
+### Numerical invariants
+
+The dedicated five-level fixture verifies:
+
+- tick-space depths over irregular prices for d0/d1/d2/d3/d5;
+- OBI and distance-weighted OBI (WOBI);
+- q25/q50/q100 coverage and capped-capacity imbalance;
+- complete/insufficient two-sided walks, including a partially consumed final level;
+- size spread, fill-distance asymmetry and walk-cost asymmetry signs;
+- deep-book invalidity leaves d0/L1 results valid while invalidating space/full-book dependent outputs;
+- q100 is NA when the weaker side cannot cover current reference depth;
+- native interval volume is unchanged, BUYVOL/SELLVOL are passed through, and each observed decrease creates a reset marker;
+- appending future rows does not change existing prefix values.
+
+The full 50-name parameterized catalog freezes successfully in a serialized FeatureSet fixture.
+
+### Real selected execution
+
+| Object | Value |
+|---|---|
+| Source | `cffex_treasury_l2_full79@2` |
+| Study | `real_l2_snapshot_study@1` |
+| FeatureSet | `real_l2_snapshot_primitives@1` |
+| Run | `run_eb48a1ad8d964a718aae163e520b1bc5` |
+| Scope | CFFEX `T2603`, trade date `2026-01-05`, opening auction + morning + afternoon |
+| Selected definitions | 18 |
+| Requested / ready / completed work | 54 / 54 / 54 |
+| Result artifacts | 54 primary values + 54 row-level audits |
+| Valid values | 436,932; no all-NA result |
+
+The real Run selects six tick-independent d0 descriptions, all three d0 coverage/capacity sizes, mid, depth reference, three relative target sizes, cumulative buy/sell fields, buy/sell reset markers, and native interval volume. The remaining 36 catalog names were not scheduled or computed; in particular d1+ and F06–F08 remain tick-gated until real metadata arrives.
+
+Representative morning-session values:
+
+| Definition | Result | First values |
+|---|---|---|
+| `obi_d0` | `result_41f35f6b30d9d40ef8a83ffa23e8ba71` | `0.6666666667`, `0.9428571429`, `0.4285714286` |
+| `wobi_d0` | `result_a8138f4d685fbb4b83fe6b773c9d728f` | identical to d0 OBI because the distance weight is one |
+| `depth_ref_5` | `result_fda666e925abb11e4c89940d126b8694` | `114.0`, `109.0`, `196.5` |
+| `target_size_q25` | `result_571e8dde47b570a642621fcde987a362` | `28.5`, `27.25`, `49.125` |
+
+`obi_d0` value hash is `sha256:a993f36d4c7057d2ec0e9283c715b333ceb5c42c12054fdabca97ac80583d841`; its audit hash is `sha256:5d26277ee608a1ffca12dec2fe5141db5a6aeb24c83f38ef4a733f9aa6714a2b`. The depth-reference value hash is `sha256:ce5339f97fc345b0d9ec590e43393627f2866499c867fbb3c067079a775e4c83`.
+
+### Verification and limits
+
+The primitive suite passed 44 tests. The complete suite passed 291 tests and full-project Ruff passed. The original formula document was not modified.
+
+Complete Step 03 means the catalog/contracts and selected execution path are complete. It does not mean all 50 names have real numerical results, and it does not relax the missing user tick/unit metadata. Next increment: **04-A business windows**.
