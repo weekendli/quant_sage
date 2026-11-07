@@ -208,13 +208,37 @@ CREATE INDEX feature_set_outputs_feature_idx
 _SCHEMA_V4_CHECKSUM = hashlib.sha256(
     f"{_SCHEMA_V3_CHECKSUM}\n{_MIGRATION_V4_SQL}".encode()
 ).hexdigest()
+_MIGRATION_V5_SQL = """
+ALTER TABLE runs ADD COLUMN research_study_id VARCHAR;
+ALTER TABLE runs ADD COLUMN request_key VARCHAR;
+ALTER TABLE runs ADD COLUMN request_hash VARCHAR;
+ALTER TABLE runs ADD COLUMN plan_hash VARCHAR;
+ALTER TABLE runs ADD COLUMN research_request_json VARCHAR;
+ALTER TABLE runs ADD COLUMN research_plan_json VARCHAR;
+ALTER TABLE runs ADD COLUMN research_summary_json VARCHAR;
+ALTER TABLE runs ADD COLUMN created_by_json VARCHAR;
+ALTER TABLE runs ADD COLUMN environment_json VARCHAR;
+ALTER TABLE stage_runs ADD COLUMN work_key VARCHAR;
+ALTER TABLE stage_runs ADD COLUMN research_role VARCHAR;
+ALTER TABLE stage_runs ADD COLUMN definition_ref VARCHAR;
+ALTER TABLE stage_runs ADD COLUMN partition_scope_json VARCHAR;
+ALTER TABLE stage_runs ADD COLUMN required_history_json VARCHAR;
+ALTER TABLE stage_runs ADD COLUMN dependency_work_keys_json VARCHAR;
+ALTER TABLE stage_runs ADD COLUMN item_ids_json VARCHAR;
+ALTER TABLE stage_runs ADD COLUMN blocked_reason VARCHAR;
+CREATE UNIQUE INDEX research_run_idempotency_idx ON runs(research_study_id, request_key);
+""".strip()
+_SCHEMA_V5_CHECKSUM = hashlib.sha256(
+    f"{_SCHEMA_V4_CHECKSUM}\n{_MIGRATION_V5_SQL}".encode()
+).hexdigest()
 _SCHEMA_CHECKSUMS = {
     1: _SCHEMA_V1_CHECKSUM,
     2: _SCHEMA_V2_CHECKSUM,
     3: _SCHEMA_V3_CHECKSUM,
     4: _SCHEMA_V4_CHECKSUM,
+    5: _SCHEMA_V5_CHECKSUM,
 }
-_CURRENT_SCHEMA_VERSION = 4
+_CURRENT_SCHEMA_VERSION = 5
 _T = TypeVar("_T")
 
 
@@ -301,6 +325,12 @@ class _DatabaseOwner:
                 self._connection.execute("BEGIN TRANSACTION")
                 result = operation(self._connection)
                 self._connection.execute("COMMIT")
+                if operation == self._initialize:
+                    # Persist schema ALTERs before dispatching work. DuckDB 1.5.5
+                    # can fail replaying a new catalog's ALTER DEFAULT records
+                    # after an abrupt process exit. Checkpoint only after the
+                    # migration transaction commits, preserving rollback safety.
+                    self._connection.execute("CHECKPOINT")
                 future.set_result(result)
                 del result
             except BaseException as exc:  # noqa: BLE001 — transfer all failures through the Future
@@ -353,6 +383,7 @@ class _DatabaseOwner:
             self._apply_migration_v2(connection)
             self._apply_migration_v3(connection)
             self._apply_migration_v4(connection)
+            self._apply_migration_v5(connection)
             return
 
         rows = connection.execute(
@@ -383,6 +414,9 @@ class _DatabaseOwner:
             current = 3
         if current == 3:
             self._apply_migration_v4(connection)
+            current = 4
+        if current == 4:
+            self._apply_migration_v5(connection)
 
     @staticmethod
     def _record_schema_version(connection: duckdb.DuckDBPyConnection, version: int) -> None:
@@ -407,6 +441,12 @@ class _DatabaseOwner:
             if statement.strip():
                 connection.execute(statement)
         self._record_schema_version(connection, 4)
+
+    def _apply_migration_v5(self, connection: duckdb.DuckDBPyConnection) -> None:
+        for statement in _MIGRATION_V5_SQL.split(";"):
+            if statement.strip():
+                connection.execute(statement)
+        self._record_schema_version(connection, 5)
 
     def _shutdown(self) -> None:
         if self.pid != os.getpid():
@@ -523,16 +563,137 @@ class Registry:
         except duckdb.ConstraintException as exc:
             raise WorkflowError(f"run_id already exists: {run_id}") from exc
 
+    def find_research_run(self, study_id: str, request_key: str) -> dict[str, Any] | None:
+        """Find a previously registered research Run by its study-local idempotency key."""
+        row = self._call(lambda connection: _fetchone(
+            connection,
+            "SELECT * FROM runs WHERE research_study_id=? AND request_key=?",
+            (study_id, request_key),
+        ))
+        return self._decode_run_row(row) if row else None
+
+    def register_research_run(
+        self, *, run_id: str, study_id: str, study_revision: int, request_key: str,
+        request_hash: str, plan_hash: str, request: Mapping[str, Any],
+        config_snapshot: Mapping[str, Any], config_hash: str, plan: Mapping[str, Any],
+        summary: Mapping[str, Any], created_by: Mapping[str, str], split_id: str,
+        code_revision: str, environment: Mapping[str, Any], work_items: list[Mapping[str, Any]],
+    ) -> dict[str, Any]:
+        """Atomically register one immutable research plan and all of its initial tasks.
+
+        The owner queue serializes this operation with Study updates and other submissions.
+        Existing `(study_id, request_key)` entries win idempotently before current-revision
+        checks, so retries never re-plan an already registered request.
+        """
+        timestamp = utc_now()
+        if plan.get("status") == "NO_WORK":
+            status = "NO_WORK"
+        elif plan.get("status") == "BLOCKED":
+            status = "BLOCKED"
+        elif not work_items:
+            status = "NO_WORK"
+        else:
+            status = "NOT_STARTED"
+        graph = {"research_run_plan": {
+            "schema_version": plan.get("schema_version"),
+            "plan_hash": plan_hash,
+            "work": list(work_items),
+            "dependencies": list(plan.get("dependencies", [])),
+        }}
+
+        def register(connection: duckdb.DuckDBPyConnection) -> dict[str, Any]:
+            existing = _fetchone(
+                connection,
+                "SELECT run_id,request_hash FROM runs WHERE research_study_id=? AND request_key=?",
+                (study_id, request_key),
+            )
+            if existing is not None:
+                if existing["request_hash"] != request_hash:
+                    return {"outcome": "idempotency_conflict", "run_id": existing["run_id"]}
+                return {"outcome": "existing", "run_id": existing["run_id"]}
+
+            study = _fetchone(
+                connection,
+                "SELECT s.current_revision,r.document_json FROM studies s JOIN study_revisions r "
+                "ON r.study_id=s.study_id AND r.revision=s.current_revision WHERE s.study_id=?",
+                (study_id,),
+            )
+            if study is None:
+                return {"outcome": "unknown_study", "run_id": None}
+            current_document = json.loads(study["document_json"])
+            if int(study["current_revision"]) != study_revision:
+                return {"outcome": "revision_conflict", "run_id": None,
+                        "current_revision": int(study["current_revision"])}
+            if current_document.get("status") != "active":
+                return {"outcome": "study_not_active", "run_id": None,
+                        "status": current_document.get("status")}
+
+            connection.execute(
+                """INSERT INTO runs(
+                    run_id,config_json,config_hash,data_snapshot_id,split_id,as_of_cutoff,
+                    code_revision,graph_json,execution_json,status,created_at,updated_at,
+                    research_study_id,request_key,request_hash,plan_hash,research_request_json,
+                    research_plan_json,research_summary_json,created_by_json,environment_json
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (run_id, canonical_json(config_snapshot), config_hash, None, split_id, None,
+                 code_revision, canonical_json(graph), canonical_json(environment), status,
+                 timestamp, timestamp, study_id, request_key, request_hash, plan_hash,
+                 canonical_json(request), canonical_json(plan), canonical_json(summary),
+                 canonical_json(created_by), canonical_json(environment)),
+            )
+            for item in work_items:
+                initial_state = item["state"]
+                error = None
+                if initial_state == StageStatus.BLOCKED.value:
+                    error = canonical_json({"code": item.get("blocked_reason"),
+                                            "message": item.get("blocked_reason")})
+                partition = item["partition_scope"]
+                connection.execute(
+                    """INSERT INTO stage_runs(
+                        stage_run_id,run_id,stage_name,stage_version,partition_json,status,
+                        cache_key,config_hash,code_revision,error_json,work_key,research_role,
+                        definition_ref,partition_scope_json,required_history_json,
+                        dependency_work_keys_json,item_ids_json,blocked_reason
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (item["stage_run_id"], run_id, item["stage_name"], item["stage_version"],
+                     canonical_json({key: value for key, value in partition.items()
+                                     if key in {"exchange", "instrument_id", "trade_date", "session_id"}}),
+                     initial_state, None, request_hash, code_revision, error,
+                     item["work_key"], item["role"], item["feature_ref"],
+                     canonical_json(partition), canonical_json(item["required_history"]),
+                     canonical_json(item["dependency_work_keys"]),
+                     canonical_json(item["item_ids"]), item.get("blocked_reason")),
+                )
+                connection.execute(
+                    "INSERT INTO stage_state_events(stage_run_id,state,attempt,fields_json,created_at) "
+                    "VALUES(?,?,?,?,?)",
+                    (item["stage_run_id"], initial_state, 0,
+                     canonical_json({"work_key": item["work_key"],
+                                    "blocked_reason": item.get("blocked_reason")}), timestamp),
+                )
+            return {"outcome": "created", "run_id": run_id}
+
+        try:
+            return self._call(register)
+        except duckdb.ConstraintException as exc:
+            raise WorkflowError("research Run registration violated a Registry uniqueness constraint") from exc
+
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         def select(connection: duckdb.DuckDBPyConnection):
             return _fetchone(connection, "SELECT * FROM runs WHERE run_id=?", (run_id,))
 
         row = self._call(select)
-        if row is None:
-            return None
-        for key in ("config_json", "graph_json", "execution_json"):
-            row[key.removesuffix("_json")] = json.loads(row[key])
-        return row
+        return self._decode_run_row(row) if row else None
+
+    @staticmethod
+    def _decode_run_row(row: Mapping[str, Any]) -> dict[str, Any]:
+        result = dict(row)
+        for key in ("config_json", "graph_json", "execution_json", "research_request_json",
+                    "research_plan_json", "research_summary_json", "created_by_json",
+                    "environment_json"):
+            if key in result and result[key] is not None:
+                result[key.removesuffix("_json")] = json.loads(result[key])
+        return result
 
     def finish_run(self, run_id: str, status: str) -> None:
         def update(connection: duckdb.DuckDBPyConnection) -> None:
@@ -586,7 +747,11 @@ class Registry:
     def _decode_stage_row(row: Mapping[str, Any]) -> dict[str, Any]:
         result = dict(row)
         result.pop("registry_order", None)
-        for key in ("partition_json", "inputs_json", "artifacts_json", "metrics_json", "warnings_json"):
+        for key in ("partition_json", "inputs_json", "artifacts_json", "metrics_json",
+                    "warnings_json", "partition_scope_json", "required_history_json",
+                    "dependency_work_keys_json", "item_ids_json"):
+            if key not in result or result[key] is None:
+                continue
             result[key.removesuffix("_json")] = json.loads(result[key])
         result["error"] = json.loads(result["error_json"]) if result.get("error_json") else None
         return result

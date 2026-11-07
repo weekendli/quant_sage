@@ -36,3 +36,19 @@ class ImmutableVersionError(ResearchError):
 
 class StudyNotActiveError(ResearchError):
     code = "STUDY_NOT_ACTIVE"
+
+
+class PlanChangedError(ResearchError):
+    code = "PLAN_CHANGED"
+
+
+class BudgetExceededError(ResearchError):
+    code = "BUDGET_EXCEEDED"
+
+
+class IdempotencyConflictError(ResearchError):
+    code = "IDEMPOTENCY_CONFLICT"
+
+
+class SourceScopeMissingError(ResearchValidationError):
+    code = "SOURCE_SCOPE_MISSING"

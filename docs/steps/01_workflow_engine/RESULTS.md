@@ -132,4 +132,29 @@ python -m ruff check quantsage_discovery scripts tests
 # All checks passed!
 ```
 
-Tests cover strict catalog/provider refs, documented recipe/sampling/validity fields, canonical duration/size, alias/set-version independence, changed formulas/parameters, three-metric outputs, exact input/output refs, cycles/ambiguity, pending definitions, concurrent draft versions, failed freeze rollback, reopen and Study backlog bindings. These are synthetic catalog tests, not real L2/catch22 execution. Next increment: 01-D.
+Tests cover strict catalog/provider refs, documented recipe/sampling/validity fields, canonical duration/size, alias/set-version independence, changed formulas/parameters, three-metric outputs, exact input/output refs, cycles/ambiguity, pending definitions, stale draft revisions, failed freeze rollback, reopen and Study backlog bindings. These are synthetic catalog tests, not real L2/catch22 execution. Next increment: 01-D.
+
+## 01-D Run 规划与幂等登记（2026-11-07）
+
+Acceptance: **COMPLETE for 01-D**. Luna/xhigh implementation and test agents supplied the planner and serialized fixtures. Root integrated the service facade, reviewed scope/history behavior, completed the direct-input versus transitive-history distinction, and verified the increment. Registry schema v5 stores immutable requests/plans, environment snapshots, idempotency keys and work-level task inventory.
+
+`ResearchService.plan_run`, `submit_run` and `get_run` now expose selection-aware planning without numerical execution. Omitted selection means all frozen items; an explicit empty list is NO_WORK. The dependency DAG records requested/dependency-only roles, exact source/split/definition refs, exchange trade dates, sessions, output ranges and bounded history. Statistical direct inputs retain W while transitive raw history includes upstream L; neither crosses sessions or authorized Study/split ranges. Missing source partitions retain diagnostic work, while absent exchange metadata is blocked. Budgets reject the entire closure before registration. Study revision/status and request-key uniqueness are checked atomically with Run/tasks/events; duplicate retries return the original Run after subsequent Study changes.
+
+The first full regression exposed two abrupt-process-exit failures in DuckDB 1.5.5 WAL replay of schema ALTER records. Startup now checkpoints after the migration transaction commits and before dispatch. Both existing real-process crash/resume regressions pass; failed migrations still roll back. No prior frozen evidence was modified.
+
+Executed verification in the existing Python 3.12.3 / DuckDB 1.5.5 environment:
+
+```bash
+python -m pytest -q tests/test_run_planner.py tests/test_registry_duckdb.py --tb=short
+# 30 passed in 3.84s (17 planning, 13 Registry)
+python -m pytest -q tests/test_workflow_engine.py::test_partition_resume_after_real_process_exit_restores_scopes tests/test_workflow_engine.py::test_resume_cleans_bundle_published_before_ledger_success tests/test_registry_duckdb.py --tb=short
+# 15 passed in 2.99s after startup checkpoint fix
+python -m pytest -q --tb=short
+# 203 passed in 21.62s
+python -m ruff check quantsage_discovery scripts tests
+# All checks passed!
+```
+
+Tests cover night-session trade dates independent of UTC date, normalized identities, multi-level history, split/read authorization, missing metadata/source partitions, selection/pending behavior, whole-plan budget rejection without Run side effects, stale plan hashes, paused Studies, concurrent idempotency and persistence after reopen. All inputs are temporary serialized fixtures; real market execution, verified result reuse and publication recovery are not claimed here. Next increment: 01-E.
+
+Review boundary: this increment has no result index yet, so cache candidates are consistently false; 01-E must populate and verify candidates once real results exist. Preflight enforces measurable whole-graph work/partition limits. CPU, memory and concurrency caps are frozen for enforcement by the 01-E executor, not represented as proven static cost estimates.

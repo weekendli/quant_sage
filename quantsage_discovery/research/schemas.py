@@ -158,12 +158,13 @@ def _coverage(value: Any, instruments: list[str], calendar: dict[str, Any]) -> d
     if not isinstance(coverage["partitions"], list) or not coverage["partitions"]:
         raise _invalid("source.coverage.partitions", "must be a non-empty array")
     calendar_dates = set(calendar["trading_dates"])
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str | None, str, str]] = set()
     normalized = []
     for index, item in enumerate(coverage["partitions"]):
         path = f"source.coverage.partitions[{index}]"
         item = _object(item, required={"instrument_id", "trade_date", "session_ids"},
-                       optional=set(), path=path)
+                       optional={"exchange"}, path=path)
+        exchange = None if "exchange" not in item else _text(item["exchange"], f"{path}.exchange")
         instrument = _text(item["instrument_id"], f"{path}.instrument_id")
         trade_date = _date(item["trade_date"], f"{path}.trade_date").isoformat()
         sessions = _string_list(item["session_ids"], f"{path}.session_ids")
@@ -171,12 +172,17 @@ def _coverage(value: Any, instruments: list[str], calendar: dict[str, Any]) -> d
             raise _invalid(f"{path}.instrument_id", "must be declared in source.instruments")
         if trade_date not in calendar_dates:
             raise _invalid(f"{path}.trade_date", "is not present in the referenced calendar")
-        key = (instrument, trade_date)
+        key = (exchange, instrument, trade_date)
         if key in seen:
             raise _invalid(path, "duplicate instrument/trade_date partition")
         seen.add(key)
-        normalized.append({"instrument_id": instrument, "trade_date": trade_date,
-                           "session_ids": sessions})
+        normalized_item = {"instrument_id": instrument, "trade_date": trade_date,
+                           "session_ids": sessions}
+        if exchange is not None:
+            normalized_item["exchange"] = exchange
+        normalized.append(normalized_item)
+    normalized.sort(key=lambda item: (item.get("exchange", ""), item["instrument_id"],
+                                      item["trade_date"]))
     return {"partitioning": "trade_date_v1", "partitions": normalized}
 
 
@@ -359,12 +365,14 @@ def validate_source_document(document: Any) -> dict[str, Any]:
     if "intervals" in sessions:
         if not isinstance(sessions["intervals"], list):
             raise _invalid("session_policy.intervals", "must be an array")
-        interval_groups: dict[tuple[str, str], list[tuple[datetime, datetime]]] = {}
-        interval_keys: set[tuple[str, str, str]] = set()
+        interval_groups: dict[tuple[str | None, str, str], list[tuple[datetime, datetime]]] = {}
+        interval_keys: set[tuple[str | None, str, str, str]] = set()
         for index, interval in enumerate(sessions["intervals"]):
             path = f"session_policy.intervals[{index}]"
             interval = _object(interval, required={"instrument_id", "trade_date", "session_id",
-                                                   "start", "end"}, optional=set(), path=path)
+                                                   "start", "end"}, optional={"exchange"}, path=path)
+            exchange = (None if "exchange" not in interval else
+                        _text(interval["exchange"], f"{path}.exchange"))
             instrument = _text(interval["instrument_id"], f"{path}.instrument_id")
             day = _date(interval["trade_date"], f"{path}.trade_date").isoformat()
             session_id = _text(interval["session_id"], f"{path}.session_id")
@@ -374,18 +382,22 @@ def validate_source_document(document: Any) -> dict[str, Any]:
             end = _timestamp(interval["end"], f"{path}.end")
             if start >= end:
                 raise _invalid(path, "start must be before end")
-            key = (instrument, day, session_id)
+            key = (exchange, instrument, day, session_id)
             if key in interval_keys:
                 raise _invalid(path, "duplicate instrument/trade_date/session interval")
             interval_keys.add(key)
-            interval_groups.setdefault((instrument, day), []).append((start, end))
+            interval_groups.setdefault((exchange, instrument, day), []).append((start, end))
         for key, values in interval_groups.items():
             values.sort(key=lambda pair: pair[0])
             if any(current[0] < previous[1] for previous, current in pairwise(values)):
-                raise _invalid("session_policy.intervals", f"overlapping intervals for {key[0]} {key[1]}")
+                raise _invalid("session_policy.intervals",
+                               f"overlapping intervals for {key[1]} {key[2]}")
         for partition in coverage["partitions"]:
             for session_id in partition["session_ids"]:
-                if (partition["instrument_id"], partition["trade_date"], session_id) not in interval_keys:
+                exchange = partition.get("exchange")
+                exact = (exchange, partition["instrument_id"], partition["trade_date"], session_id)
+                shared = (None, partition["instrument_id"], partition["trade_date"], session_id)
+                if exact not in interval_keys and shared not in interval_keys:
                     raise _invalid("source.coverage.partitions",
                                    "session has no corresponding declared interval")
 
@@ -633,8 +645,6 @@ def study_scope_is_covered(scope: dict[str, Any], sources: list[dict[str, Any]])
         if len(timezones) != 1:
             return False
         timezone = ZoneInfo(next(iter(timezones)))
-        local_start = start.astimezone(timezone).date()
-        local_end = (end - timedelta(microseconds=1)).astimezone(timezone).date()
         observed_dates = [date.fromisoformat(part["trade_date"])
                           for source in candidates for part in source["coverage"]["partitions"]
                           if part["instrument_id"] == instrument]
@@ -645,8 +655,21 @@ def study_scope_is_covered(scope: dict[str, Any], sources: list[dict[str, Any]])
         # Exact partition inventories retain internal gaps. A Study may include those dates so
         # later diagnostics can represent them; only bounds outside the known source/calendar
         # extent are rejected here.
-        if (local_start < min(observed_dates) or local_end > max(observed_dates)
-                or local_start < min(calendar_dates) or local_end > max(calendar_dates)):
+        first_day, last_day = min(observed_dates), max(observed_dates)
+        extent_start = datetime.combine(first_day, datetime.min.time(), tzinfo=timezone)
+        extent_end = datetime.combine(last_day + timedelta(days=1), datetime.min.time(),
+                                      tzinfo=timezone)
+        for source in candidates:
+            policy = _read_json_ref(source["session_policy_ref"], "source.session_policy_ref")
+            for interval in policy.get("intervals", []):
+                if interval["instrument_id"] != instrument:
+                    continue
+                interval_day = date.fromisoformat(interval["trade_date"])
+                if not first_day <= interval_day <= last_day:
+                    continue
+                extent_start = min(extent_start, _timestamp(interval["start"], "session.start"))
+                extent_end = max(extent_end, _timestamp(interval["end"], "session.end"))
+        if start < extent_start or end > extent_end:
             return False
         sessions = scope.get("session_filter")
         if sessions is not None:

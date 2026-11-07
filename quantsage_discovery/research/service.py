@@ -32,6 +32,7 @@ class ResearchService:
     """Validated management use cases backed by the Registry's single owner."""
 
     def __init__(self, registry: Registry):
+        self._registry = registry
         self._repository = ResearchRepository(registry)
         self._catalog = FeatureCatalog(registry)
 
@@ -74,6 +75,23 @@ class ResearchService:
 
     def list_features(self, filters: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
         return self._catalog.list_features(filters)
+
+    def plan_run(self, request: Mapping[str, Any]) -> dict[str, Any]:
+        return self._run_planner().plan_run(request)
+
+    def submit_run(self, request: Mapping[str, Any], *, request_key: str,
+                   expected_plan_hash: str | None = None) -> dict[str, Any]:
+        return self._run_planner().submit_run(
+            request, request_key=request_key, expected_plan_hash=expected_plan_hash,
+        )
+
+    def get_run(self, run_id: str) -> dict[str, Any]:
+        return self._run_planner().get_run(run_id)
+
+    def _run_planner(self):
+        from .planner import RunPlanner
+
+        return RunPlanner(self._registry, self._repository, self._catalog)
 
     def register_source(self, document: Mapping[str, Any]) -> dict[str, Any]:
         """Validate and publish one immutable DataSource version."""
