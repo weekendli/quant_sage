@@ -34,10 +34,8 @@ from .feature_schemas import (
     validate_provider,
     validate_template,
 )
-from .statistical_windows import (
-    INPUT_VIEW_POLICY,
-    validate_statistical_input,
-)
+from .statistical_backends import SHAPE_MIN_SAMPLES, metric_backend_document
+from .statistical_windows import INPUT_VIEW_POLICY, validate_statistical_input
 
 _T = TypeVar("_T")
 
@@ -523,6 +521,7 @@ def _resolve_recipe(connection: duckdb.DuckDBPyConnection, feature_set: dict[str
         raise ResearchValidationError("provider does not support the registered template step")
 
     metric_docs: list[tuple[str, dict[str, Any]]] = []
+    metric_selection: dict[str, Any] = {}
     kind = template["kind"]
     if kind == "statistical":
         if ("metrics" in recipe) == ("metric_set_ref" in recipe):
@@ -533,6 +532,10 @@ def _resolve_recipe(connection: duckdb.DuckDBPyConnection, feature_set: dict[str
             raise ResearchValidationError("statistical recipe requires one input reference")
         if "metrics" in recipe:
             metric_refs = recipe["metrics"]
+            metric_selection = {
+                "mode": "explicit_metrics",
+                "label": "custom_subset",
+            }
         else:
             metric_set_id, metric_set_version = parse_feature_set_ref(
                 recipe["metric_set_ref"], "recipe.metric_set_ref"
@@ -546,6 +549,19 @@ def _resolve_recipe(connection: duckdb.DuckDBPyConnection, feature_set: dict[str
                 raise UnknownReferenceError(f"unknown metric set ref: {recipe['metric_set_ref']}",
                                             details={"ref": recipe["metric_set_ref"]})
             metric_refs = json.loads(metric_set["document_json"])["metrics"]
+            baseline_labels = {
+                "catch22_classic_22": "complete_catch22_baseline",
+                "catch22_plus_selected_tsfeatures_30": (
+                    "complete_catch22_plus_selected_tsfeatures"
+                ),
+            }
+            metric_set_id = recipe["metric_set_ref"].split("@", 1)[0]
+            metric_selection = {
+                "mode": "metric_set",
+                "metric_set_ref": recipe["metric_set_ref"],
+                "label": baseline_labels.get(metric_set_id, "custom_subset"),
+            }
+        metric_selection["metric_refs"] = list(metric_refs)
         for ref in metric_refs:
             metric_docs.append((ref, _load_resource(connection, "metrics", "metric_id", ref,
                                                     "metric_ref")))
@@ -635,6 +651,13 @@ def _resolve_recipe(connection: duckdb.DuckDBPyConnection, feature_set: dict[str
     validity = _normalize_validity(validity, "recipe.validity")
     if recipe["step"] == 5 and "min_samples" not in validity:
         raise ResearchValidationError("step 05 recipe requires validity.min_samples")
+    if (
+        any(ref.split("@", 1)[0].startswith(("c22.", "tsf.")) for ref, _ in metric_docs)
+        and validity["min_samples"] < SHAPE_MIN_SAMPLES
+    ):
+        raise ResearchValidationError(
+            f"catch22/tsfeatures metrics require validity.min_samples >= {SHAPE_MIN_SAMPLES}"
+        )
 
     feature_outputs = []
     metrics: list[tuple[str | None, dict[str, Any] | None]] = metric_docs or [(None, None)]
@@ -655,6 +678,12 @@ def _resolve_recipe(connection: duckdb.DuckDBPyConnection, feature_set: dict[str
             metric_provider = None
         parameters = normalize_parameters({**defaults, **recipe["parameters"]}, combined_schema,
                                           "recipe.parameters")
+        backend = (
+            metric_backend_document(metric_ref_value)
+            if metric_ref_value is not None
+            and metric_ref_value.split("@", 1)[0].startswith(("c22.", "tsf."))
+            else None
+        )
         if metric_ref_value is not None:
             parameters = {**parameters, "metric_ref": metric_ref_value}
 
@@ -695,6 +724,7 @@ def _resolve_recipe(connection: duckdb.DuckDBPyConnection, feature_set: dict[str
             "time_policy": time_policy,
             "sampling": sampling,
             "validity": validity,
+            **({"backend": backend} if backend is not None else {}),
             "output_schema": output_schema,
             "unit": unit,
             "status": status,
@@ -732,9 +762,14 @@ def _resolve_recipe(connection: duckdb.DuckDBPyConnection, feature_set: dict[str
             feature["reason"] = reason
         if metric_ref_value is not None:
             feature["metric_ref"] = metric_ref_value
+        if backend is not None:
+            feature["backend"] = backend
         feature_ref_value = f"{feature_id}@1"
         feature_documents[feature_ref_value] = feature
-        feature_outputs.append(_resolved_output(feature, metric_ref_value))
+        resolved_output = _resolved_output(feature, metric_ref_value)
+        if metric_selection:
+            resolved_output["metric_selection"] = metric_selection
+        feature_outputs.append(resolved_output)
     return feature_outputs
 
 

@@ -126,6 +126,74 @@ def test_metric_catalog_contains_selected_basic_descriptions_only() -> None:
     }
 
 
+def _shape_feature(metric_ref: str, *, window: str = "300s"):
+    return {
+        "metric_ref": metric_ref,
+        "time_policy": {"profile_window": normalize_duration(window, "W")},
+        "sampling": {
+            "interval": normalize_duration("1s", "interval"),
+            "evaluation_stride": normalize_duration("60s", "stride"),
+            "max_feature_age": normalize_duration("2s", "age"),
+        },
+        "validity": {"min_samples": 256},
+    }
+
+
+def test_catch22_window_preserves_complete_grid_and_future_prefix():
+    metric_ref = f"c22.CO_f1ecac@{CATALOG_VERSION}"
+    prefix = compute_statistical_window(
+        _shape_feature(metric_ref),
+        {"table": _table([float(index) for index in range(321)])},
+        _partition(321),
+        _read_scope(),
+    )
+    extended = compute_statistical_window(
+        _shape_feature(metric_ref),
+        {"table": _table([float(index) for index in range(421)])},
+        _partition(421),
+        _read_scope(),
+    )
+    assert prefix.values["event_time"].to_pylist() == [START + timedelta(seconds=300)]
+    assert prefix.values["value"].to_pylist() == extended.values["value"].to_pylist()[:1]
+    assert prefix.audit["n_total"].to_pylist() == [300]
+    assert prefix.audit["n_valid"].to_pylist() == [300]
+    assert prefix.audit["library_name"].to_pylist() == ["pycatch22"]
+    assert prefix.audit["library_version"].to_pylist() == ["0.4.5"]
+    assert prefix.audit["n_unique"].to_pylist() == [300]
+    assert prefix.audit["backend_elapsed_ms"].to_pylist()[0] >= 0
+
+
+def test_tsfeatures_window_uses_the_selected_fixed_r_metric():
+    metric_ref = f"tsf.crossing_points@{CATALOG_VERSION}"
+    values = [float(index % 2) for index in range(421)]
+    prefix = compute_statistical_window(
+        _shape_feature(metric_ref),
+        {"table": _table(values[:361])},
+        _partition(361),
+        _read_scope(),
+    )
+    output = compute_statistical_window(
+        _shape_feature(metric_ref),
+        {"table": _table(values)},
+        _partition(421),
+        _read_scope(),
+    )
+    assert output.values["event_time"].to_pylist() == [
+        START + timedelta(seconds=300), START + timedelta(seconds=360),
+        START + timedelta(seconds=420),
+    ]
+    assert output.values["value"].to_pylist() == [299.0, 299.0, 299.0]
+    assert prefix.values["event_time"].to_pylist() == output.values["event_time"].to_pylist()[:2]
+    assert prefix.values["value"].to_pylist() == output.values["value"].to_pylist()[:2]
+    assert output.audit["backend_kind"].to_pylist() == ["r_subprocess"] * 3
+    assert output.audit["library_name"].to_pylist() == ["tsfeatures"] * 3
+    assert output.audit["library_version"].to_pylist() == ["1.1.1"] * 3
+    assert all(
+        value is not None and value >= 0
+        for value in output.audit["backend_elapsed_ms"].to_pylist()
+    )
+
+
 def test_changed_output_start_keeps_true_session_grid_and_common_values():
     table = {"table": _table(list(range(32)))}
     early = compute_statistical_window(

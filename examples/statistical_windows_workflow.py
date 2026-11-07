@@ -28,7 +28,7 @@ def _install(database: Path, socket: Path) -> None:
            f"{document['metric_id']}@{document['version']}", document)
           for document in metric_documents()],
         ("catalog.metric_sets.get", "catalog.metric_sets.register",
-         "basic_description@2", metric_set_document()),
+         "basic_description@3", metric_set_document()),
     ]
     for get_method, register_method, ref, document in resources:
         try:

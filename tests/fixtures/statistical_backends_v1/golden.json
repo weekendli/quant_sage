@@ -1,0 +1,1067 @@
+{
+  "backend_lock": {
+    "catch22": {
+      "library": "pycatch22",
+      "source_revision": "v0.4.5",
+      "version": "0.4.5"
+    },
+    "tsfeatures": {
+      "conda_binary_sha256": "b6b3dcc35059b5b3d2649cefacf308bfdf4fc5909a7ac9b9165e393a8fffc48d",
+      "conda_build": "r44hc72bb7e_2",
+      "library": "tsfeatures",
+      "r_version": "4.4.3",
+      "source_sha256": "5eeb239f51552a42900c68895712c1bbcc6a5bb82b5ae33936876b28d80d0cfc",
+      "version": "1.1.1"
+    }
+  },
+  "catch22": {
+    "c22.CO_Embed2_Dist_tau_d_expfit_meandiff": [
+      {
+        "reason": null,
+        "value": 0.08007053652354779
+      },
+      {
+        "reason": null,
+        "value": 0.842211239113983
+      },
+      {
+        "reason": null,
+        "value": 0.3789098933802862
+      },
+      {
+        "reason": null,
+        "value": 0.08507409375646746
+      },
+      {
+        "reason": null,
+        "value": 0.14160842806490712
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": "CONSTANT_INPUT",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 0.1344844392763057
+      }
+    ],
+    "c22.CO_FirstMin_ac": [
+      {
+        "reason": null,
+        "value": 2.0
+      },
+      {
+        "reason": null,
+        "value": 12.0
+      },
+      {
+        "reason": null,
+        "value": 18.0
+      },
+      {
+        "reason": null,
+        "value": 3.0
+      },
+      {
+        "reason": null,
+        "value": 1.0
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 0.0
+      },
+      {
+        "reason": null,
+        "value": 3.0
+      }
+    ],
+    "c22.CO_HistogramAMI_even_2_5": [
+      {
+        "reason": null,
+        "value": 0.023501698424513336
+      },
+      {
+        "reason": null,
+        "value": 0.769388104677674
+      },
+      {
+        "reason": null,
+        "value": 0.33241226693768966
+      },
+      {
+        "reason": null,
+        "value": 0.06415031406207722
+      },
+      {
+        "reason": null,
+        "value": 0.0058297025871470644
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": "CONSTANT_INPUT",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 0.40920777179035017
+      }
+    ],
+    "c22.CO_f1ecac": [
+      {
+        "reason": null,
+        "value": 0.6897218684339124
+      },
+      {
+        "reason": null,
+        "value": 4.573334390455269
+      },
+      {
+        "reason": null,
+        "value": 7.944366310690482
+      },
+      {
+        "reason": null,
+        "value": 0.7321528207042511
+      },
+      {
+        "reason": null,
+        "value": 0.6136835903676934
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 0.0
+      },
+      {
+        "reason": null,
+        "value": 1.17927529461438
+      }
+    ],
+    "c22.CO_trev_1_num": [
+      {
+        "reason": null,
+        "value": 0.03206011649442353
+      },
+      {
+        "reason": null,
+        "value": 0.00016350203439952635
+      },
+      {
+        "reason": null,
+        "value": 0.019931001092755207
+      },
+      {
+        "reason": null,
+        "value": -0.030504932780169636
+      },
+      {
+        "reason": null,
+        "value": 0.11468015735019398
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": "CONSTANT_INPUT",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": -0.004477529094855019
+      }
+    ],
+    "c22.DN_HistogramMode_10": [
+      {
+        "reason": null,
+        "value": -0.348252606402744
+      },
+      {
+        "reason": null,
+        "value": 1.235714536836146
+      },
+      {
+        "reason": null,
+        "value": 0.33281918261660715
+      },
+      {
+        "reason": null,
+        "value": 0.22065700674157607
+      },
+      {
+        "reason": null,
+        "value": 1.0412677321012116
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": "CONSTANT_INPUT",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 1.2672500921836283
+      }
+    ],
+    "c22.DN_HistogramMode_5": [
+      {
+        "reason": null,
+        "value": -0.004272270895962382
+      },
+      {
+        "reason": null,
+        "value": 1.094438484005012
+      },
+      {
+        "reason": null,
+        "value": 0.07325019408516042
+      },
+      {
+        "reason": null,
+        "value": -0.0919066347173223
+      },
+      {
+        "reason": null,
+        "value": 0.9215817858826815
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": "CONSTANT_INPUT",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 1.1258164908555715
+      }
+    ],
+    "c22.DN_OutlierInclude_n_001_mdrmd": [
+      {
+        "reason": null,
+        "value": -0.020000000000000018
+      },
+      {
+        "reason": null,
+        "value": 0.006666666666666599
+      },
+      {
+        "reason": null,
+        "value": -0.020000000000000018
+      },
+      {
+        "reason": null,
+        "value": 0.18333333333333335
+      },
+      {
+        "reason": null,
+        "value": -0.040000000000000036
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": "CONSTANT_INPUT",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 0.0033333333333334103
+      }
+    ],
+    "c22.DN_OutlierInclude_p_001_mdrmd": [
+      {
+        "reason": null,
+        "value": 0.0
+      },
+      {
+        "reason": null,
+        "value": 0.006666666666666599
+      },
+      {
+        "reason": null,
+        "value": -0.2833333333333333
+      },
+      {
+        "reason": null,
+        "value": -0.013333333333333308
+      },
+      {
+        "reason": null,
+        "value": -0.013333333333333308
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": "CONSTANT_INPUT",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 0.0
+      }
+    ],
+    "c22.FC_LocalSimple_mean1_tauresrat": [
+      {
+        "reason": null,
+        "value": 0.5
+      },
+      {
+        "reason": null,
+        "value": 0.8571428571428571
+      },
+      {
+        "reason": null,
+        "value": 0.038461538461538464
+      },
+      {
+        "reason": null,
+        "value": 0.3333333333333333
+      },
+      {
+        "reason": null,
+        "value": 1.0
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": "CONSTANT_INPUT",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 1.0
+      }
+    ],
+    "c22.FC_LocalSimple_mean3_stderr": [
+      {
+        "reason": null,
+        "value": 1.1232332710887127
+      },
+      {
+        "reason": null,
+        "value": 0.5102114525340968
+      },
+      {
+        "reason": null,
+        "value": 0.6150375976376252
+      },
+      {
+        "reason": null,
+        "value": 1.1697846624596555
+      },
+      {
+        "reason": null,
+        "value": 1.1550190170008636
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": "CONSTANT_INPUT",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 1.4364027029731297
+      }
+    ],
+    "c22.IN_AutoMutualInfoStats_40_gaussian_fmmi": [
+      {
+        "reason": null,
+        "value": 1.0
+      },
+      {
+        "reason": null,
+        "value": 5.0
+      },
+      {
+        "reason": null,
+        "value": 17.0
+      },
+      {
+        "reason": null,
+        "value": 1.0
+      },
+      {
+        "reason": null,
+        "value": 1.0
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": "CONSTANT_INPUT",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 1.0
+      }
+    ],
+    "c22.MD_hrv_classic_pnn40": [
+      {
+        "reason": null,
+        "value": 0.9765886287625418
+      },
+      {
+        "reason": null,
+        "value": 1.0
+      },
+      {
+        "reason": null,
+        "value": 0.9531772575250836
+      },
+      {
+        "reason": null,
+        "value": 0.9331103678929766
+      },
+      {
+        "reason": null,
+        "value": 0.6989966555183946
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": "CONSTANT_INPUT",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 0.9765886287625418
+      }
+    ],
+    "c22.PD_PeriodicityWang_th0_01": [
+      {
+        "reason": null,
+        "value": 2.0
+      },
+      {
+        "reason": null,
+        "value": 23.0
+      },
+      {
+        "reason": null,
+        "value": 18.0
+      },
+      {
+        "reason": null,
+        "value": 5.0
+      },
+      {
+        "reason": null,
+        "value": 6.0
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 0.0
+      },
+      {
+        "reason": null,
+        "value": 5.0
+      }
+    ],
+    "c22.SB_BinaryStats_diff_longstretch0": [
+      {
+        "reason": null,
+        "value": 6.0
+      },
+      {
+        "reason": null,
+        "value": 13.0
+      },
+      {
+        "reason": null,
+        "value": 9.0
+      },
+      {
+        "reason": null,
+        "value": 6.0
+      },
+      {
+        "reason": null,
+        "value": 3.0
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": "CONSTANT_INPUT",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 5.0
+      }
+    ],
+    "c22.SB_BinaryStats_mean_longstretch1": [
+      {
+        "reason": null,
+        "value": 12.0
+      },
+      {
+        "reason": null,
+        "value": 12.0
+      },
+      {
+        "reason": null,
+        "value": 24.0
+      },
+      {
+        "reason": null,
+        "value": 11.0
+      },
+      {
+        "reason": null,
+        "value": 5.0
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": "CONSTANT_INPUT",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 5.0
+      }
+    ],
+    "c22.SB_MotifThree_quantile_hh": [
+      {
+        "reason": null,
+        "value": 2.190788723577054
+      },
+      {
+        "reason": null,
+        "value": 1.5929560607925737
+      },
+      {
+        "reason": null,
+        "value": 1.846781893635268
+      },
+      {
+        "reason": null,
+        "value": 2.1064786311211554
+      },
+      {
+        "reason": null,
+        "value": 1.2721013254904785
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": "CONSTANT_INPUT",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 1.8378895968596105
+      }
+    ],
+    "c22.SB_TransitionMatrix_3ac_sumdiagcov": [
+      {
+        "reason": null,
+        "value": 0.0004954731768839248
+      },
+      {
+        "reason": null,
+        "value": 0.018140589569160995
+      },
+      {
+        "reason": null,
+        "value": 0.013774104683195593
+      },
+      {
+        "reason": null,
+        "value": 0.003775124987246201
+      },
+      {
+        "reason": null,
+        "value": 0.06130058202182674
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": "CONSTANT_INPUT",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 0.022791766136660507
+      }
+    ],
+    "c22.SC_FluctAnal_2_dfa_50_1_2_logi_prop_r1": [
+      {
+        "reason": null,
+        "value": 0.4090909090909091
+      },
+      {
+        "reason": null,
+        "value": 0.18181818181818182
+      },
+      {
+        "reason": null,
+        "value": 0.8636363636363636
+      },
+      {
+        "reason": null,
+        "value": 0.7272727272727273
+      },
+      {
+        "reason": null,
+        "value": 0.6136363636363636
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": "CONSTANT_INPUT",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 0.22727272727272727
+      }
+    ],
+    "c22.SC_FluctAnal_2_rsrangefit_50_1_logi_prop_r1": [
+      {
+        "reason": null,
+        "value": 0.13636363636363635
+      },
+      {
+        "reason": null,
+        "value": 0.38636363636363635
+      },
+      {
+        "reason": null,
+        "value": 0.25
+      },
+      {
+        "reason": null,
+        "value": 0.13636363636363635
+      },
+      {
+        "reason": null,
+        "value": 0.8409090909090909
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": "CONSTANT_INPUT",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 0.13636363636363635
+      }
+    ],
+    "c22.SP_Summaries_welch_rect_area_5_1": [
+      {
+        "reason": null,
+        "value": 0.2378346649622351
+      },
+      {
+        "reason": null,
+        "value": 0.9960585563105728
+      },
+      {
+        "reason": null,
+        "value": 0.8524964362320365
+      },
+      {
+        "reason": null,
+        "value": 0.23255275628418634
+      },
+      {
+        "reason": null,
+        "value": 0.18299192690839242
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": "CONSTANT_INPUT",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 0.002289757474717198
+      }
+    ],
+    "c22.SP_Summaries_welch_rect_centroid": [
+      {
+        "reason": null,
+        "value": 1.4726215563703124
+      },
+      {
+        "reason": null,
+        "value": 0.2577087723648047
+      },
+      {
+        "reason": null,
+        "value": 0.14726215563703127
+      },
+      {
+        "reason": null,
+        "value": 1.2394564766116798
+      },
+      {
+        "reason": null,
+        "value": 1.6689710972196876
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": "CONSTANT_INPUT",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 0.9940195505499609
+      }
+    ]
+  },
+  "fixture_inputs_order": [
+    "white_noise_seed_20261107",
+    "periodic_sine",
+    "ar1_phi_082",
+    "heteroskedastic",
+    "ties",
+    "short",
+    "constant",
+    "near_constant"
+  ],
+  "fixture_inputs_sha256": "sha256:6f7347e29ab0e04812fa6bf4662b7bb0b19fb4f73787cae8fb9930b62e1f479c",
+  "generation_script": "scripts/generate_statistical_goldens.py",
+  "platform": "Linux-6.17.0-1032-oem-x86_64-with-glibc2.39",
+  "python_version": "3.12.3",
+  "schema_version": "statistical_backend_golden_v1",
+  "tolerances": {
+    "default": {
+      "atol": 1e-12,
+      "rtol": 1e-12
+    },
+    "exact_integer_metrics": [
+      "c22.CO_FirstMin_ac",
+      "c22.PD_PeriodicityWang_th0_01",
+      "tsf.crossing_points"
+    ]
+  },
+  "tsfeatures": {
+    "tsf.arch_r2_l12": [
+      {
+        "reason": null,
+        "value": 0.0733578925114708
+      },
+      {
+        "reason": null,
+        "value": 1.0
+      },
+      {
+        "reason": null,
+        "value": 0.370741193365857
+      },
+      {
+        "reason": null,
+        "value": 0.133917894159484
+      },
+      {
+        "reason": null,
+        "value": 0.0288014840704562
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 0.0
+      },
+      {
+        "reason": null,
+        "value": 0.999997510117821
+      }
+    ],
+    "tsf.crossing_points": [
+      {
+        "reason": null,
+        "value": 144.0
+      },
+      {
+        "reason": null,
+        "value": 25.0
+      },
+      {
+        "reason": null,
+        "value": 42.0
+      },
+      {
+        "reason": null,
+        "value": 135.0
+      },
+      {
+        "reason": null,
+        "value": 147.0
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 0.0
+      },
+      {
+        "reason": null,
+        "value": 96.0
+      }
+    ],
+    "tsf.lumpiness_w60": [
+      {
+        "reason": null,
+        "value": 0.0588370950563414
+      },
+      {
+        "reason": null,
+        "value": 0.0
+      },
+      {
+        "reason": null,
+        "value": 0.000949247733234736
+      },
+      {
+        "reason": null,
+        "value": 0.0281168660500269
+      },
+      {
+        "reason": null,
+        "value": 0.00446489683052066
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 0.0
+      },
+      {
+        "reason": null,
+        "value": 3.10958785158553e-54
+      }
+    ],
+    "tsf.spectral_entropy": [
+      {
+        "reason": null,
+        "value": 0.999350985783146
+      },
+      {
+        "reason": null,
+        "value": 0.00237909034659924
+      },
+      {
+        "reason": null,
+        "value": 0.765339999116687
+      },
+      {
+        "reason": null,
+        "value": 0.997271134466764
+      },
+      {
+        "reason": null,
+        "value": 1.0
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": "CONSTANT_INPUT",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 0.188462824545222
+      }
+    ],
+    "tsf.stability_w60": [
+      {
+        "reason": null,
+        "value": 0.0299342521869075
+      },
+      {
+        "reason": null,
+        "value": 0.0383846553179932
+      },
+      {
+        "reason": null,
+        "value": 0.426929166327893
+      },
+      {
+        "reason": null,
+        "value": 0.0166107609486614
+      },
+      {
+        "reason": null,
+        "value": 0.00982835348163763
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 0.0
+      },
+      {
+        "reason": null,
+        "value": 1.11554792759566e-27
+      }
+    ],
+    "tsf.x_acf1": [
+      {
+        "reason": null,
+        "value": 0.0835138223703782
+      },
+      {
+        "reason": null,
+        "value": 0.965921547063282
+      },
+      {
+        "reason": null,
+        "value": 0.837623450067301
+      },
+      {
+        "reason": null,
+        "value": 0.136627571521842
+      },
+      {
+        "reason": null,
+        "value": -0.0300431179035117
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": "CONSTANT_INPUT",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 0.538523671361646
+      }
+    ],
+    "tsf.x_acf10": [
+      {
+        "reason": null,
+        "value": 0.0247473654413952
+      },
+      {
+        "reason": null,
+        "value": 3.94484845562215
+      },
+      {
+        "reason": null,
+        "value": 3.06731231523374
+      },
+      {
+        "reason": null,
+        "value": 0.0494888608621336
+      },
+      {
+        "reason": null,
+        "value": 0.00828079321679038
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": "CONSTANT_INPUT",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 4.801187126762
+      }
+    ],
+    "tsf.x_pacf5": [
+      {
+        "reason": null,
+        "value": 0.0214705810105098
+      },
+      {
+        "reason": null,
+        "value": 1.91951476842386
+      },
+      {
+        "reason": null,
+        "value": 0.722333030405615
+      },
+      {
+        "reason": null,
+        "value": 0.0318599448266037
+      },
+      {
+        "reason": null,
+        "value": 0.00615530891686696
+      },
+      {
+        "reason": "INSUFFICIENT_HISTORY",
+        "value": null
+      },
+      {
+        "reason": "CONSTANT_INPUT",
+        "value": null
+      },
+      {
+        "reason": null,
+        "value": 1.34702422181121
+      }
+    ]
+  }
+}

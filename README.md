@@ -1,6 +1,6 @@
 # QuantSage Discovery Engine
 
-QuantSage is a Python framework for reproducible empirical research over irregular market data. It implements Step 01 workflow, CFFEX L2 onboarding (Step 02), the 02-A source adapter, Step 03 primitives, 04-A ready business windows, and 05-A sampling/base descriptions. Step 04 remains partial because F07/F08 aggregation is pending; 05-B and later are not implemented. See the per-step RESULTS files under `docs/steps/`.
+QuantSage is a Python framework for reproducible empirical research over irregular market data. It implements Step 01 workflow, CFFEX L2 onboarding (Step 02), the 02-A source adapter, Step 03 primitives, 04-A ready business windows, 05-A sampling/base descriptions, and 05-B catch22/fixed-R tsfeatures. Step 04 remains partial because F07/F08 aggregation is pending; E2E and later stages are not implemented. See the per-step RESULTS files under `docs/steps/`.
 
 ## Install and verify
 

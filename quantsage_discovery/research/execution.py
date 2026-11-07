@@ -72,7 +72,13 @@ from .providers import (
 )
 from .repository import ResearchRepository
 from .schemas import parse_versioned_ref
-from .statistical_windows import compute_statistical_window
+from .statistical_windows import (
+    STATISTICAL_AUDIT_SCHEMA,
+    STATISTICAL_AUDIT_SCHEMA_VERSION,
+    STATISTICAL_AUDIT_TYPE,
+    compute_statistical_window,
+    validate_statistical_audit_parquet,
+)
 
 _SAFE_PATH_PART = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _DURATION_NS = re.compile(r"^(\d+)ns$")
@@ -143,6 +149,11 @@ class ResearchExecutor:
             BUSINESS_AUDIT_TYPE,
             BUSINESS_AUDIT_SCHEMA_VERSION,
             validate_business_audit_parquet,
+        )
+        self._store.register_validator(
+            STATISTICAL_AUDIT_TYPE,
+            STATISTICAL_AUDIT_SCHEMA_VERSION,
+            validate_statistical_audit_parquet,
         )
 
     def find_verified_result(self, run_context_dict: dict[str, Any], work: dict[str, Any],
@@ -419,6 +430,9 @@ class ResearchExecutor:
             ) or (
                 ref.artifact_type == BUSINESS_AUDIT_TYPE
                 and ref.schema_version == BUSINESS_AUDIT_SCHEMA_VERSION
+            ) or (
+                ref.artifact_type == STATISTICAL_AUDIT_TYPE
+                and ref.schema_version == STATISTICAL_AUDIT_SCHEMA_VERSION
             )
             if not supported:
                 raise WorkflowError("FeatureResult artifact has an unsupported schema")
@@ -809,22 +823,27 @@ class ResearchExecutor:
                 audit_columns = list(L2_PRIMITIVE_AUDIT_SCHEMA.names)
             elif business_provider or statistical_provider:
                 if statistical_provider:
+                    input_feature = self._catalog.get_feature(expected_input_refs[0])
                     business_output = compute_statistical_window(
                         feature,
                         input_tables_by_role.get("input"),
                         work["partition_scope"],
                         work.get("read_scope") or {},
+                        input_feature,
                     )
+                    audit_type = STATISTICAL_AUDIT_TYPE
+                    audit_schema_version = STATISTICAL_AUDIT_SCHEMA_VERSION
+                    audit_columns = list(STATISTICAL_AUDIT_SCHEMA.names)
                 else:
                     business_output = compute_business_window(
                         feature, input_tables_by_role, work["partition_scope"],
                     )
+                    audit_type = BUSINESS_AUDIT_TYPE
+                    audit_schema_version = BUSINESS_AUDIT_SCHEMA_VERSION
+                    audit_columns = list(BUSINESS_AUDIT_SCHEMA.names)
                 transformed = business_output.values
                 provider_reasons = business_output.provider_reasons
                 audit_table = business_output.audit
-                audit_type = BUSINESS_AUDIT_TYPE
-                audit_schema_version = BUSINESS_AUDIT_SCHEMA_VERSION
-                audit_columns = list(BUSINESS_AUDIT_SCHEMA.names)
             else:
                 transformed, provider_reasons = transform_values(provider_key, feature, raw_inputs)
             output = self._filter_feature_table(transformed, partition)
@@ -1178,8 +1197,13 @@ class ResearchExecutor:
         if audit_ref is not None:
             descriptors.append({
                 "artifact_role": (
-                    "window_audit" if audit_schema_version == BUSINESS_AUDIT_SCHEMA_VERSION
-                    else "primitive_audit"
+                    "window_audit"
+                    if audit_schema_version == BUSINESS_AUDIT_SCHEMA_VERSION
+                    else (
+                        "statistical_audit"
+                        if audit_schema_version == STATISTICAL_AUDIT_SCHEMA_VERSION
+                        else "primitive_audit"
+                    )
                 ),
                 "artifact_ref": audit_ref.to_dict(),
                 "hash": audit_ref.content_hash,

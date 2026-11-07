@@ -3,22 +3,71 @@
 from __future__ import annotations
 
 import bisect
+import json
 import math
 import statistics
+import time
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import pyarrow as pa
+import pyarrow.parquet as pq
+
+from quantsage_discovery.core.errors import ArtifactValidationError
+
 from .business_windows import BUSINESS_AUDIT_SCHEMA, BusinessOutput
 from .errors import ResearchValidationError
 from .providers import FEATURE_VALUES_SCHEMA, make_feature_values_table
+from .statistical_backends import (
+    CATCH22_NAMES,
+    SHAPE_MIN_SAMPLES,
+    TSFEATURES_METRICS,
+    BackendMetricResult,
+    BackendUnavailableError,
+    catch22_metric_document,
+    metric_backend_document,
+    run_catch22_metric_detailed,
+    run_tsfeature_metrics_detailed,
+    tsfeature_metric_document,
+)
 
 PROVIDER_ID = "quantsage_statistical_windows"
 PROVIDER_KEY = "builtin.statistical_windows"
-CATALOG_VERSION = "1.0.1"
-IMPLEMENTATION_VERSION = "statistical_windows_v2"
+CATALOG_VERSION = "1.1.0"
+IMPLEMENTATION_VERSION = "statistical_windows_v3"
 FORMULA_REF = "quantsage_statistical_descriptions@1"
 INPUT_VIEW_POLICY = "step05_input_whitelist@1"
+STATISTICAL_AUDIT_TYPE = "statistical_window_audit"
+STATISTICAL_AUDIT_SCHEMA_VERSION = "statistical_window_audit_v1"
+STATISTICAL_AUDIT_SCHEMA = BUSINESS_AUDIT_SCHEMA.append(pa.field("metric_id", pa.string()))
+for _field in (
+    pa.field("library_name", pa.string()),
+    pa.field("library_metric_name", pa.string()),
+    pa.field("library_version", pa.string()),
+    pa.field("source_revision", pa.string()),
+    pa.field("parameters_json", pa.string()),
+    pa.field("input_unit", pa.string()),
+    pa.field("output_unit", pa.string()),
+    pa.field("backend_kind", pa.string()),
+    pa.field("backend_elapsed_ms", pa.float64()),
+    pa.field("backend_warnings", pa.list_(pa.string()), nullable=False),
+    pa.field("n_unique", pa.int64(), nullable=False),
+):
+    STATISTICAL_AUDIT_SCHEMA = STATISTICAL_AUDIT_SCHEMA.append(_field)
+
+
+def validate_statistical_audit_parquet(path: Any) -> None:
+    try:
+        parquet = pq.ParquetFile(path)
+    except Exception as exc:
+        raise ArtifactValidationError(
+            f"cannot read statistical audit Parquet: {exc}"
+        ) from exc
+    if not parquet.schema_arrow.equals(STATISTICAL_AUDIT_SCHEMA, check_metadata=False):
+        raise ArtifactValidationError(
+            "statistical audit schema does not match statistical_window_audit_v1"
+        )
 
 METRICS = {
     "mean": ("Arithmetic mean", "source_unit"),
@@ -46,48 +95,121 @@ _BASE_DESCRIPTIONS = {
 }
 _NONNEGATIVE_DESCRIPTIONS = _BASE_DESCRIPTIONS | {"zero_ratio"}
 _SIGNED_DESCRIPTIONS = _NONNEGATIVE_DESCRIPTIONS | {"positive_ratio", "negative_ratio"}
+_CATCH22_DESCRIPTIONS = {f"c22.{name}" for name in CATCH22_NAMES}
+_TSFEATURE_COMMON = set(TSFEATURES_METRICS) - {"tsf.arch_r2_l12"}
+_COMMON_SHAPE = _CATCH22_DESCRIPTIONS | _TSFEATURE_COMMON
+_ARCH_SHAPE = {"tsf.arch_r2_l12"}
+
+
+def _profile_metrics(base: set[str], *, signed: bool = False, arch: bool = False) -> set[str]:
+    metrics = base | _COMMON_SHAPE
+    if signed:
+        metrics |= _SIGNED_DESCRIPTIONS - _BASE_DESCRIPTIONS - _NONNEGATIVE_DESCRIPTIONS
+    if arch:
+        metrics |= _ARCH_SHAPE
+    return metrics
 
 # This is deliberately a closed, semantic whitelist rather than a source-kind
 # shortcut. Boolean controls, cumulative counters and static tick-size rows are
 # not valid profile sequences; derived flow and movement views are allowed.
 INPUT_VIEW_WHITELIST = {
-    "primitive:mid": ("price_dynamics", "quoted_price_unit", _BASE_DESCRIPTIONS),
-    "primitive:spread_ticks": ("price_dynamics", "ticks", _NONNEGATIVE_DESCRIPTIONS),
-    "primitive:depth_bid_1": ("liquidity", "source_size_unit", _NONNEGATIVE_DESCRIPTIONS),
-    "primitive:depth_ask_1": ("liquidity", "source_size_unit", _NONNEGATIVE_DESCRIPTIONS),
-    "primitive:depth_imbalance_1": ("liquidity", "dimensionless", _SIGNED_DESCRIPTIONS),
-    "primitive:microprice_proxy": ("price_dynamics", "quoted_price_unit", _BASE_DESCRIPTIONS),
+    "primitive:mid": ("price_dynamics", "quoted_price_unit", _profile_metrics(_BASE_DESCRIPTIONS)),
+    "primitive:spread_ticks": (
+        "price_dynamics", "ticks", _profile_metrics(_NONNEGATIVE_DESCRIPTIONS),
+    ),
+    "primitive:depth_bid_1": (
+        "liquidity", "source_size_unit", _profile_metrics(_NONNEGATIVE_DESCRIPTIONS),
+    ),
+    "primitive:depth_ask_1": (
+        "liquidity", "source_size_unit", _profile_metrics(_NONNEGATIVE_DESCRIPTIONS),
+    ),
+    "primitive:depth_imbalance_1": (
+        "liquidity", "dimensionless", _profile_metrics(_SIGNED_DESCRIPTIONS, signed=True),
+    ),
+    "primitive:microprice_proxy": (
+        "price_dynamics", "quoted_price_unit", _profile_metrics(_BASE_DESCRIPTIONS),
+    ),
     "primitive:quote_interarrival": (
-        "temporal_structure", "seconds", _NONNEGATIVE_DESCRIPTIONS,
+        "temporal_structure", "seconds", _profile_metrics(_NONNEGATIVE_DESCRIPTIONS),
     ),
-    "primitive:obi_snapshot": ("F02", "dimensionless", _SIGNED_DESCRIPTIONS),
-    "primitive:wobi_snapshot": ("F03", "dimensionless", _SIGNED_DESCRIPTIONS),
-    "primitive:min_coverage_snapshot": ("F04", "dimensionless", _NONNEGATIVE_DESCRIPTIONS),
-    "primitive:capacity_imb_snapshot": ("F05", "dimensionless", _SIGNED_DESCRIPTIONS),
-    "primitive:size_spread_snapshot": ("F06", "ticks", _NONNEGATIVE_DESCRIPTIONS),
-    "primitive:fill_dist_asym_snapshot": ("F07", "dimensionless", _SIGNED_DESCRIPTIONS),
-    "primitive:walk_cost_asym_snapshot": ("F08", "dimensionless", _SIGNED_DESCRIPTIONS),
-    "primitive:visible_depth_bid_5": ("input", "source_size_unit", _NONNEGATIVE_DESCRIPTIONS),
-    "primitive:visible_depth_ask_5": ("input", "source_size_unit", _NONNEGATIVE_DESCRIPTIONS),
-    "primitive:depth_ref_5": ("input", "source_size_unit", _NONNEGATIVE_DESCRIPTIONS),
-    "primitive:target_size_q25": ("input", "source_size_unit", _NONNEGATIVE_DESCRIPTIONS),
-    "primitive:target_size_q50": ("input", "source_size_unit", _NONNEGATIVE_DESCRIPTIONS),
-    "primitive:target_size_q100": ("input", "source_size_unit", _NONNEGATIVE_DESCRIPTIONS),
+    "primitive:obi_snapshot": (
+        "F02", "dimensionless", _profile_metrics(_SIGNED_DESCRIPTIONS, signed=True),
+    ),
+    "primitive:wobi_snapshot": (
+        "F03", "dimensionless", _profile_metrics(_SIGNED_DESCRIPTIONS, signed=True),
+    ),
+    "primitive:min_coverage_snapshot": (
+        "F04", "dimensionless", _profile_metrics(_NONNEGATIVE_DESCRIPTIONS),
+    ),
+    "primitive:capacity_imb_snapshot": (
+        "F05", "dimensionless", _profile_metrics(_SIGNED_DESCRIPTIONS, signed=True),
+    ),
+    "primitive:size_spread_snapshot": (
+        "F06", "ticks", _profile_metrics(_NONNEGATIVE_DESCRIPTIONS),
+    ),
+    "primitive:fill_dist_asym_snapshot": (
+        "F07", "dimensionless", _profile_metrics(_SIGNED_DESCRIPTIONS, signed=True),
+    ),
+    "primitive:walk_cost_asym_snapshot": (
+        "F08", "dimensionless", _profile_metrics(_SIGNED_DESCRIPTIONS, signed=True),
+    ),
+    "primitive:visible_depth_bid_5": (
+        "input", "source_size_unit", _profile_metrics(_NONNEGATIVE_DESCRIPTIONS),
+    ),
+    "primitive:visible_depth_ask_5": (
+        "input", "source_size_unit", _profile_metrics(_NONNEGATIVE_DESCRIPTIONS),
+    ),
+    "primitive:depth_ref_5": (
+        "input", "source_size_unit", _profile_metrics(_NONNEGATIVE_DESCRIPTIONS),
+    ),
+    "primitive:target_size_q25": (
+        "input", "source_size_unit", _profile_metrics(_NONNEGATIVE_DESCRIPTIONS),
+    ),
+    "primitive:target_size_q50": (
+        "input", "source_size_unit", _profile_metrics(_NONNEGATIVE_DESCRIPTIONS),
+    ),
+    "primitive:target_size_q100": (
+        "input", "source_size_unit", _profile_metrics(_NONNEGATIVE_DESCRIPTIONS),
+    ),
     "primitive:trade_volume_interval": (
-        "input", "source_size_unit", _NONNEGATIVE_DESCRIPTIONS,
+        "input", "source_size_unit", _profile_metrics(_NONNEGATIVE_DESCRIPTIONS),
     ),
-    "business:spread_ticks": ("F01", "ticks", _NONNEGATIVE_DESCRIPTIONS),
-    "business:obi": ("F02", "dimensionless", _SIGNED_DESCRIPTIONS),
-    "business:wobi": ("F03", "dimensionless", _SIGNED_DESCRIPTIONS),
-    "business:min_coverage": ("F04", "dimensionless", _NONNEGATIVE_DESCRIPTIONS),
-    "business:capacity_imb": ("F05", "dimensionless", _SIGNED_DESCRIPTIONS),
-    "business:size_spread": ("F06", "ticks", _NONNEGATIVE_DESCRIPTIONS),
-    "business:fill_dist_asym": ("F07", "dimensionless", _SIGNED_DESCRIPTIONS),
-    "business:walk_cost_asym": ("F08", "dimensionless", _SIGNED_DESCRIPTIONS),
-    "business:active_flow_imb": ("F09", "dimensionless", _SIGNED_DESCRIPTIONS),
-    "business:volume_to_depth": ("F10", "source_size_unit", _NONNEGATIVE_DESCRIPTIONS),
-    "business:mid_move_ticks": ("F11", "ticks", _SIGNED_DESCRIPTIONS),
-    "business:flow_impact_eff": ("F12", "dimensionless", _SIGNED_DESCRIPTIONS),
+    "business:spread_ticks": (
+        "F01", "ticks", _profile_metrics(_NONNEGATIVE_DESCRIPTIONS),
+    ),
+    "business:obi": (
+        "F02", "dimensionless", _profile_metrics(_SIGNED_DESCRIPTIONS, signed=True),
+    ),
+    "business:wobi": (
+        "F03", "dimensionless", _profile_metrics(_SIGNED_DESCRIPTIONS, signed=True),
+    ),
+    "business:min_coverage": (
+        "F04", "dimensionless", _profile_metrics(_NONNEGATIVE_DESCRIPTIONS),
+    ),
+    "business:capacity_imb": (
+        "F05", "dimensionless", _profile_metrics(_SIGNED_DESCRIPTIONS, signed=True),
+    ),
+    "business:size_spread": (
+        "F06", "ticks", _profile_metrics(_NONNEGATIVE_DESCRIPTIONS),
+    ),
+    "business:fill_dist_asym": (
+        "F07", "dimensionless", _profile_metrics(_SIGNED_DESCRIPTIONS, signed=True),
+    ),
+    "business:walk_cost_asym": (
+        "F08", "dimensionless", _profile_metrics(_SIGNED_DESCRIPTIONS, signed=True),
+    ),
+    "business:active_flow_imb": (
+        "F09", "dimensionless", _profile_metrics(_SIGNED_DESCRIPTIONS, signed=True, arch=True),
+    ),
+    "business:volume_to_depth": (
+        "F10", "source_size_unit", _profile_metrics(_NONNEGATIVE_DESCRIPTIONS),
+    ),
+    "business:mid_move_ticks": (
+        "F11", "ticks", _profile_metrics(_SIGNED_DESCRIPTIONS, signed=True, arch=True),
+    ),
+    "business:flow_impact_eff": (
+        "F12", "dimensionless", _profile_metrics(_SIGNED_DESCRIPTIONS, signed=True, arch=True),
+    ),
 }
 
 
@@ -159,6 +281,49 @@ def metric_documents() -> list[dict[str, Any]]:
             "unit": unit,
             "status": "ready",
         })
+    for name in CATCH22_NAMES:
+        backend = catch22_metric_document(f"c22.{name}")
+        documents.append({
+            "schema_version": "metric_v1",
+            "metric_id": backend["metric_id"],
+            "version": CATALOG_VERSION,
+            "name": backend["name"],
+            "description": (
+                f"pycatch22 {backend['library_version']} canonical long-name metric."
+            ),
+            "formula_ref": f"pycatch22_{backend['library_version']}@1",
+            "provider_ref": f"{PROVIDER_ID}@{CATALOG_VERSION}",
+            "parameters_schema": {
+                "type": "object", "properties": {}, "required": [],
+                "additionalProperties": False,
+            },
+            "defaults": {},
+            "output_schema": {"value": "float64"},
+            "unit": backend["unit"],
+            "status": "ready",
+        })
+    for metric_id in TSFEATURES_METRICS:
+        backend = tsfeature_metric_document(metric_id)
+        documents.append({
+            "schema_version": "metric_v1",
+            "metric_id": metric_id,
+            "version": CATALOG_VERSION,
+            "name": backend["name"],
+            "description": (
+                f"Fixed R tsfeatures {backend['library_version']} metric "
+                f"{backend['library_metric_name']}."
+            ),
+            "formula_ref": f"tsfeatures_{backend['library_version']}@1",
+            "provider_ref": f"{PROVIDER_ID}@{CATALOG_VERSION}",
+            "parameters_schema": {
+                "type": "object", "properties": {}, "required": [],
+                "additionalProperties": False,
+            },
+            "defaults": {},
+            "output_schema": {"value": "float64"},
+            "unit": backend["unit"],
+            "status": "ready",
+        })
     return documents
 
 
@@ -166,9 +331,36 @@ def metric_set_document() -> dict[str, Any]:
     return {
         "schema_version": "metric_set_v1",
         "metric_set_id": "basic_description",
-        "version": 2,
+        "version": 3,
         "metrics": [f"stat.{name}@{CATALOG_VERSION}" for name in METRICS],
     }
+
+
+def shape_metric_set_documents() -> list[dict[str, Any]]:
+    catch22 = [f"c22.{name}@{CATALOG_VERSION}" for name in CATCH22_NAMES]
+    tsfeatures = [
+        f"{metric_id}@{CATALOG_VERSION}" for metric_id in TSFEATURES_METRICS
+    ]
+    return [
+        {
+            "schema_version": "metric_set_v1",
+            "metric_set_id": "catch22_classic_22",
+            "version": 1,
+            "metrics": catch22,
+        },
+        {
+            "schema_version": "metric_set_v1",
+            "metric_set_id": "tsfeatures_selected_8",
+            "version": 1,
+            "metrics": tsfeatures,
+        },
+        {
+            "schema_version": "metric_set_v1",
+            "metric_set_id": "catch22_plus_selected_tsfeatures_30",
+            "version": 1,
+            "metrics": catch22 + tsfeatures,
+        },
+    ]
 
 
 def register_statistical_catalog(service: Any) -> dict[str, Any]:
@@ -176,8 +368,12 @@ def register_statistical_catalog(service: Any) -> dict[str, Any]:
     template = service.register_template(statistical_template_document())
     metrics = [service.register_metric(document) for document in metric_documents()]
     metric_set = service.register_metric_set(metric_set_document())
+    shape_metric_sets = [
+        service.register_metric_set(document) for document in shape_metric_set_documents()
+    ]
     return {"provider": provider, "template": template,
-            "metrics": metrics, "metric_set": metric_set}
+            "metrics": metrics, "metric_set": metric_set,
+            "shape_metric_sets": shape_metric_sets}
 
 
 def validate_statistical_input(
@@ -234,13 +430,18 @@ def compute_statistical_window(
     input_data: dict[str, Any],
     partition: dict[str, Any],
     read_scope: dict[str, Any],
+    input_feature: dict[str, Any] | None = None,
 ) -> BusinessOutput:
     metric_ref = feature.get("metric_ref")
-    if not metric_ref or metric_ref.split("@", 1)[0] not in {
-        f"stat.{name}" for name in METRICS
-    }:
+    metric_key = metric_ref.split("@", 1)[0] if metric_ref else None
+    supported_metrics = (
+        {f"stat.{name}" for name in METRICS}
+        | {f"c22.{name}" for name in CATCH22_NAMES}
+        | set(TSFEATURES_METRICS)
+    )
+    if metric_key not in supported_metrics:
         raise ValueError(f"unsupported statistical metric: {metric_ref}")
-    metric_id = metric_ref.split("@", 1)[0].removeprefix("stat.")
+    metric_id = metric_key.removeprefix("stat.")
     window_ns = _duration_ns(feature["time_policy"]["profile_window"])
     sampling = feature["sampling"]
     interval_ns = _duration_ns(sampling["interval"])
@@ -258,6 +459,11 @@ def compute_statistical_window(
         raise ValueError("profile window and stride must be multiples of the sampling interval")
     if not input_data or "table" not in input_data:
         raise ValueError("statistical window requires one resolved input value table")
+    min_samples = int(feature.get("validity", {}).get("min_samples", 1))
+    if metric_key.startswith(("c22.", "tsf.")) and min_samples < SHAPE_MIN_SAMPLES:
+        raise ValueError(
+            f"{metric_key} requires validity.min_samples >= {SHAPE_MIN_SAMPLES}"
+        )
     rows = sorted(input_data["table"].to_pylist(), key=lambda row: row["event_time"])
     times = [row["event_time"] for row in rows]
     values = [row["value"] for row in rows]
@@ -279,11 +485,14 @@ def compute_statistical_window(
         grid.append(current)
         current += stride
     output_rows, audits = [], []
+    pending: list[tuple[int, list[float]]] = []
     reasons: Counter[str] = Counter()
+    evidence = _audit_evidence(metric_key, feature, input_feature)
     for grid_time in grid:
         samples = []
         reason = None
         max_age_seen = None
+        valid_sample_count = 0
         sample_time = grid_time - window + interval
         expected = window_ns // interval_ns
         while sample_time <= grid_time:
@@ -304,21 +513,17 @@ def compute_statistical_window(
                 samples = []
                 break
             samples.append(float(value))
+            valid_sample_count += 1
             sample_time += interval
-        result = None if reason else _metric_value(metric_id, samples)
-        if result is not None and not math.isfinite(result):
-            result, reason = None, "NUMERICAL_FAILURE"
-        if result is None and reason is None:
-            reason = "CONSTANT_INPUT" if metric_id in {"std"} else "NUMERICAL_FAILURE"
-        if reason:
-            reasons[reason] += 1
+        if reason is None and len(samples) < min_samples:
+            reason = "INSUFFICIENT_HISTORY"
         row = {
             "event_time": grid_time,
             "available_time": None,
             "instrument_id": rows[0]["instrument_id"] if rows else partition["instrument_id"],
             "trade_date": rows[0]["trade_date"] if rows else partition["trade_date"],
             "session_id": partition["session_id"],
-            "value": result,
+            "value": None,
         }
         output_rows.append(row)
         audits.append({
@@ -328,8 +533,8 @@ def compute_statistical_window(
             "session_id": partition["session_id"],
             "window_start": grid_time - window,
             "n_total": expected,
-            "n_valid": 0 if result is None else len(samples),
-            "valid_ratio": None if result is None else 1.0,
+            "n_valid": valid_sample_count,
+            "valid_ratio": valid_sample_count / expected if expected else None,
             "invalid_reason": reason,
             "matched_buy_time": None, "matched_sell_time": None,
             "matched_mid_time": None, "matched_tick_time": None,
@@ -337,16 +542,151 @@ def compute_statistical_window(
                 None if max_age_seen is None else max_age_seen.total_seconds()
             ),
             "warning_flags": [f"METRIC:{metric_id}"],
+            "metric_id": evidence["metric_id"],
+            "library_name": evidence["library_name"],
+            "library_metric_name": evidence["library_metric_name"],
+            "library_version": evidence["library_version"],
+            "source_revision": evidence["source_revision"],
+            "parameters_json": evidence["parameters_json"],
+            "input_unit": evidence["input_unit"],
+            "output_unit": evidence["output_unit"],
+            "backend_kind": evidence["backend_kind"],
+            "backend_elapsed_ms": None,
+            "backend_warnings": [],
+            "n_unique": len(set(samples)),
         })
+        if reason is None:
+            pending.append((len(output_rows) - 1, samples))
+        else:
+            reasons[reason] += 1
+
+    backend_warning = None
+    if metric_key.startswith("c22."):
+        try:
+            for row_index, samples in pending:
+                result = run_catch22_metric_detailed(metric_key, samples)
+                _assign_metric_result(
+                    output_rows[row_index], audits[row_index], result, reasons,
+                )
+        except BackendUnavailableError:
+            backend_warning = "BACKEND_UNAVAILABLE"
+            for row_index, _ in pending:
+                _assign_metric_result(
+                    output_rows[row_index], audits[row_index],
+                    BackendMetricResult(
+                        None, "NUMERICAL_FAILURE",
+                        ("BACKEND_UNAVAILABLE",), 0.0,
+                    ),
+                    reasons,
+                )
+    elif metric_key.startswith("tsf."):
+        try:
+            results = run_tsfeature_metrics_detailed(
+                metric_key, [samples for _, samples in pending],
+            )
+            for (row_index, _), result in zip(
+                pending, results, strict=True,
+            ):
+                _assign_metric_result(
+                    output_rows[row_index], audits[row_index], result, reasons,
+                )
+        except BackendUnavailableError:
+            backend_warning = "BACKEND_UNAVAILABLE"
+            for row_index, _ in pending:
+                _assign_metric_result(
+                    output_rows[row_index], audits[row_index],
+                    BackendMetricResult(
+                        None, "NUMERICAL_FAILURE",
+                        ("BACKEND_UNAVAILABLE",), 0.0,
+                    ),
+                    reasons,
+                )
+    else:
+        for row_index, samples in pending:
+            started = time.perf_counter()
+            value = _metric_value(metric_id, samples)
+            elapsed_ms = (time.perf_counter() - started) * 1_000
+            failure = None
+            if value is not None and not math.isfinite(value):
+                value, failure = None, "NUMERICAL_FAILURE"
+            if value is None and failure is None:
+                failure = (
+                    "INSUFFICIENT_HISTORY"
+                    if len(samples) < _metric_min_samples(metric_id)
+                    else ("CONSTANT_INPUT" if metric_id == "std" else "NUMERICAL_FAILURE")
+                )
+            result = BackendMetricResult(value, failure, (), elapsed_ms)
+            _assign_metric_result(
+                output_rows[row_index], audits[row_index], result, reasons,
+            )
+
     values_table = make_feature_values_table(output_rows) if output_rows else FEATURE_VALUES_SCHEMA.empty_table()
-    audit_table = (BUSINESS_AUDIT_SCHEMA.empty_table() if not audits else
-                   __import__("pyarrow").Table.from_pylist(audits, schema=BUSINESS_AUDIT_SCHEMA))
+    audit_table = (STATISTICAL_AUDIT_SCHEMA.empty_table() if not audits else
+                   pa.Table.from_pylist(audits, schema=STATISTICAL_AUDIT_SCHEMA))
     flags = []
     if not output_rows:
         flags.append("ZERO_OBSERVATIONS")
     elif all(row["value"] is None for row in output_rows):
         flags.append("ALL_NA")
+    if backend_warning is not None:
+        flags.append(backend_warning)
     return BusinessOutput(values_table, audit_table, dict(reasons), dict(reasons), flags)
+
+
+def _assign_metric_result(
+    row: dict[str, Any],
+    audit: dict[str, Any],
+    result: BackendMetricResult,
+    reasons: Counter[str],
+) -> None:
+    audit["backend_elapsed_ms"] = result.elapsed_ms
+    audit["backend_warnings"] = list(result.warnings)
+    if result.value is not None:
+        row["value"] = result.value
+        audit["invalid_reason"] = None
+        return
+    reason = result.reason or "NUMERICAL_FAILURE"
+    audit["invalid_reason"] = reason
+    reasons[reason] += 1
+
+
+def _audit_evidence(
+    metric_key: str,
+    feature: dict[str, Any],
+    input_feature: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if metric_key.startswith(("c22.", "tsf.")):
+        document = metric_backend_document(metric_key)
+        backend = document.get("backend", {})
+        backend_kind = backend.get("kind", "python_subprocess")
+        parameters = document.get("parameters", {})
+    else:
+        document = {
+            "metric_id": metric_key,
+            "library_name": "quantsage_python",
+            "library_metric_name": metric_key,
+            "library_version": IMPLEMENTATION_VERSION,
+            "source_revision": "project",
+        }
+        backend_kind = "python"
+        parameters = feature.get("parameters", {})
+    return {
+        "metric_id": document["metric_id"],
+        "library_name": document["library_name"],
+        "library_metric_name": document["library_metric_name"],
+        "library_version": document["library_version"],
+        "source_revision": document["source_revision"],
+        "parameters_json": json.dumps(parameters, sort_keys=True, separators=(",", ":")),
+        "input_unit": (input_feature or {}).get("unit"),
+        "output_unit": feature.get("unit"),
+        "backend_kind": backend_kind,
+    }
+
+
+def _metric_min_samples(metric_id: str) -> int:
+    if metric_id in {"std", "unchanged_ratio"}:
+        return 2
+    return 1
 
 
 def _metric_value(metric_id: str, values: list[float]) -> float | None:
