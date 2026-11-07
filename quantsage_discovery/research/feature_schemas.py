@@ -26,7 +26,11 @@ _NS_FACTORS = {
     "s": Decimal(1_000_000_000), "m": Decimal(60_000_000_000),
     "h": Decimal(3_600_000_000_000), "d": Decimal(86_400_000_000_000),
 }
-_TRUSTED_PROVIDER_KEYS = {"builtin.arithmetic", "builtin.identity"}
+_TRUSTED_PROVIDER_KEYS = {
+    "builtin.arithmetic",
+    "builtin.identity",
+    "builtin.l2_primitives",
+}
 _PARAM_TYPES = {"string", "integer", "number", "boolean", "object", "array", "decimal", "duration"}
 
 

@@ -343,6 +343,17 @@ def _partition_index(source: dict[str, Any]) -> dict[tuple[str, str], list[dict[
     return index
 
 
+def _source_identity_hash(source: dict[str, Any]) -> str:
+    """Bind data content and every metadata/policy ref into the Run identity."""
+    fields = (
+        "schema_version", "source_id", "version", "manifest_ref", "content_hash",
+        "schema_ref", "format", "instruments", "coverage", "time_rules", "calendar_ref",
+        "session_policy_ref", "market_metadata_ref", "gap_manifest_ref", "quality_ref",
+        "availability_mode", "access_policy_ref",
+    )
+    return _hash({field: source.get(field) for field in fields})
+
+
 def _scope_segments(scope: dict[str, Any], sources: list[dict[str, Any]],
                     metadata_by_ref: dict[str, dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     start = _utc_timestamp(scope["start"], "request.scope.start")
@@ -508,6 +519,24 @@ def _needs_tick_size(feature: dict[str, Any]) -> bool:
     return (requirements.get("tick_size") is True
             or "tick_size" in requirements.get("required_metadata", [])
             or "tick_size" in requirements.get("metadata", []))
+
+
+def _source_requirements_block(feature: dict[str, Any], source: dict[str, Any]) -> str | None:
+    requirements = feature.get("source_requirements", {})
+    if not isinstance(requirements, dict):
+        return None
+    expected_format = requirements.get("source_format")
+    if expected_format is not None and source.get("format") != expected_format:
+        return "SOURCE_FORMAT_UNSUPPORTED"
+    required_columns = requirements.get("required_columns")
+    if not isinstance(required_columns, list) or not required_columns:
+        return None
+    schema = _read_json_ref(source["schema_ref"], "source.schema_ref")
+    available = set(schema.get("fields", {}))
+    missing = sorted(set(required_columns) - available)
+    if missing:
+        return "SOURCE_FIELD_MISSING:" + ",".join(missing)
+    return None
 
 
 def _tick_metadata_block(feature: dict[str, Any], source: dict[str, Any],
@@ -911,8 +940,12 @@ class RunPlanner:
                         node["blocked_reason"] = "DEPENDENCY_NOT_SELECTED"
                     else:
                         source = source_by_ref[segment["source_ref"]]
-                        node["blocked_reason"] = _tick_metadata_block(
-                            feature, source, segment["instrument_id"], segment["trade_date"]
+                        node["blocked_reason"] = (
+                            _source_requirements_block(feature, source)
+                            or _tick_metadata_block(
+                                feature, source, segment["instrument_id"],
+                                segment["trade_date"],
+                            )
                         )
                 node["processed_interval"] = interval_key
                 if node["blocked_reason"] not in {
@@ -1061,7 +1094,9 @@ class RunPlanner:
                         node["blocked_reason"] = "HISTORY_OUTSIDE_SPLIT_SCOPE"
 
         code_revision, environment_ref, environment = _runtime_snapshot()
-        source_hashes = {ref: source_by_ref[ref]["content_hash"] for ref in sorted(source_by_ref)}
+        source_hashes = {
+            ref: _source_identity_hash(source_by_ref[ref]) for ref in sorted(source_by_ref)
+        }
         request_hash = _hash(request)
         study_semantics = {key: value for key, value in study.items()
                            if key not in {"created_at", "updated_at", "created_by", "updated_by",

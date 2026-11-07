@@ -46,6 +46,14 @@ from .errors import (
     UnknownReferenceError,
 )
 from .execution_view import active_linked_result
+from .l2_primitives import (
+    L2_PRIMITIVE_AUDIT_SCHEMA,
+    L2_PRIMITIVE_AUDIT_SCHEMA_VERSION,
+    L2_PRIMITIVE_AUDIT_TYPE,
+    compute_l2_primitive,
+    validate_l2_primitive_audit_parquet,
+)
+from .onboarding_adapter import OnboardingDataSourceReader
 from .planner import RunPlanner
 from .providers import (
     FEATURE_VALUES_ARTIFACT_TYPE,
@@ -112,10 +120,16 @@ class ResearchExecutor:
         if fault_hook is not None and not callable(fault_hook):
             raise TypeError("fault_hook must be callable or None")
         self._fault_hook = fault_hook
+        self._source_reader_cache: dict[tuple[str, int], OnboardingDataSourceReader] = {}
         self._store.register_validator(
             FEATURE_VALUES_ARTIFACT_TYPE,
             FEATURE_VALUES_SCHEMA_VERSION,
             validate_feature_values_parquet,
+        )
+        self._store.register_validator(
+            L2_PRIMITIVE_AUDIT_TYPE,
+            L2_PRIMITIVE_AUDIT_SCHEMA_VERSION,
+            validate_l2_primitive_audit_parquet,
         )
 
     def find_verified_result(self, run_context_dict: dict[str, Any], work: dict[str, Any],
@@ -344,8 +358,12 @@ class ResearchExecutor:
             raise WorkflowError(f"FeatureResult {result_id} input feature lineage does not match")
 
         artifacts = self._verify_result_artifacts(result)
-        if sum(ref.row_count or 0 for ref in artifacts) != n_total:
-            raise WorkflowError(f"FeatureResult {result_id} row count does not match artifacts")
+        primary_rows = sum(
+            ref.row_count or 0 for ref in artifacts
+            if ref.artifact_type == FEATURE_VALUES_ARTIFACT_TYPE
+        )
+        if primary_rows != n_total:
+            raise WorkflowError(f"FeatureResult {result_id} row count does not match value artifacts")
         for input_result in input_results:
             self._verify_stored_result(input_result, seen)
         return artifacts
@@ -371,14 +389,21 @@ class ResearchExecutor:
         if not isinstance(descriptors, list) or not descriptors:
             raise WorkflowError("FeatureResult artifacts must be a non-empty array")
         refs = []
+        primary_refs = []
         for descriptor in descriptors:
             if not isinstance(descriptor, dict) or not isinstance(descriptor.get("artifact_ref"), dict):
                 raise WorkflowError("FeatureResult artifact descriptor is malformed")
             ref = ArtifactRef.from_dict(descriptor["artifact_ref"])
             if descriptor.get("hash") != ref.content_hash:
                 raise WorkflowError("FeatureResult artifact descriptor hash does not match its ref")
-            if (ref.artifact_type != FEATURE_VALUES_ARTIFACT_TYPE
-                    or ref.schema_version != FEATURE_VALUES_SCHEMA_VERSION):
+            supported = (
+                ref.artifact_type == FEATURE_VALUES_ARTIFACT_TYPE
+                and ref.schema_version == FEATURE_VALUES_SCHEMA_VERSION
+            ) or (
+                ref.artifact_type == L2_PRIMITIVE_AUDIT_TYPE
+                and ref.schema_version == L2_PRIMITIVE_AUDIT_SCHEMA_VERSION
+            )
+            if not supported:
                 raise WorkflowError("FeatureResult artifact has an unsupported schema")
             expected = {
                 "run_id": result["producer_run_id"],
@@ -389,10 +414,14 @@ class ResearchExecutor:
                 "split_id": result["split_ref"]["split_id"],
             }
             self._store.verify(ref, expected=expected)
-            if ref.row_count != result["quality"]["n_total"]:
-                raise WorkflowError("FeatureResult quality count does not match artifact row count")
+            if ref.artifact_type == FEATURE_VALUES_ARTIFACT_TYPE:
+                primary_refs.append(ref)
             refs.append(ref)
-        validate_feature_result_payload(refs, result)
+        if not primary_refs:
+            raise WorkflowError("FeatureResult has no primary feature_values artifact")
+        if sum(ref.row_count or 0 for ref in primary_refs) != result["quality"]["n_total"]:
+            raise WorkflowError("FeatureResult quality count does not match value artifacts")
+        validate_feature_result_payload(primary_refs, result)
         return refs
 
     def _record_result_health(self, result: dict[str, Any], reason: str) -> dict[str, Any] | None:
@@ -637,9 +666,13 @@ class ResearchExecutor:
         input_tables: list[pa.Table] = []
         for index, result in enumerate(ordered_inputs):
             refs = self._result_artifact_map(result)
-            if len(refs) != 1:
-                raise WorkflowError("synthetic provider requires one verified value artifact per input")
-            ref = next(iter(refs.values()))
+            value_refs = [
+                ref for role, ref in refs.items()
+                if role == "feature_values" or ref.artifact_type == FEATURE_VALUES_ARTIFACT_TYPE
+            ]
+            if len(value_refs) != 1:
+                raise WorkflowError("provider requires exactly one verified value artifact per input")
+            ref = value_refs[0]
             input_artifacts[f"input_{index}"] = ref
             table = pq.read_table(artifact_path(ref.uri))
             dependency_scope = {
@@ -649,7 +682,16 @@ class ResearchExecutor:
             input_tables.append(self._filter_feature_table(table, dependency_scope))
 
         source = self._source(work["source_ref"])
-        if input_tables:
+        implementation = feature.get("implementation", {})
+        provider_key = implementation.get("metric_provider_key") or implementation.get("provider_key")
+        l2_provider = provider_key == "builtin.l2_primitives"
+        if l2_provider:
+            if input_tables:
+                raise ArtifactValidationError(
+                    "Step 03-A L2 primitives do not accept dependency value tables"
+                )
+            raw_inputs = None
+        elif input_tables:
             if len(input_tables) > 1:
                 tables = [table for table in input_tables if table.num_rows]
                 raw_inputs = pa.concat_tables(tables) if tables else input_tables[0].slice(0, 0)
@@ -713,18 +755,35 @@ class ResearchExecutor:
             publication_id=publication_id,
         )
         try:
-            implementation = feature.get("implementation", {})
-            provider_key = implementation.get("metric_provider_key") or implementation.get("provider_key")
-            transformed, provider_reasons = transform_values(provider_key, feature, raw_inputs)
+            l2_output = None
+            source_evidence = None
+            if l2_provider:
+                reader = self._l2_reader(work["source_ref"], source)
+                l2_output = compute_l2_primitive(
+                    reader,
+                    source,
+                    feature,
+                    work["partition_scope"],
+                    work.get("read_scope") or work["partition_scope"],
+                )
+                transformed = l2_output.values
+                provider_reasons = l2_output.provider_reasons
+                source_evidence = l2_output.source_evidence
+            else:
+                transformed, provider_reasons = transform_values(provider_key, feature, raw_inputs)
             output = self._filter_feature_table(transformed, partition)
             n_total = output.num_rows
             values = output["value"].to_pylist()
             n_valid = sum(value is not None and math.isfinite(value) for value in values)
-            invalid_counts = {"NA_VALUE": n_total - n_valid} if n_total > n_valid else {}
-            quality_flags = []
+            invalid_counts = (
+                dict(l2_output.invalid_reason_counts) if l2_output is not None
+                else ({"NA_VALUE": n_total - n_valid} if n_total > n_valid else {})
+            )
+            quality_flags = list(l2_output.quality_flags) if l2_output is not None else []
             if n_total == 0:
-                quality_flags.append("ZERO_OBSERVATIONS")
-            elif n_valid == 0:
+                if "ZERO_OBSERVATIONS" not in quality_flags:
+                    quality_flags.append("ZERO_OBSERVATIONS")
+            elif n_valid == 0 and "ALL_NA" not in quality_flags:
                 quality_flags.append("ALL_NA")
             metrics = {
                 "n_total": n_total,
@@ -742,18 +801,38 @@ class ResearchExecutor:
             )
             pq.write_table(output, output_path, compression="zstd", version="2.6")
             pending_ref = transaction.register_output("result")
+            pending_audit_ref = None
+            if l2_output is not None:
+                audit_time_min, audit_time_max = self._time_bounds(l2_output.audit)
+                audit_path = transaction.reserve_output(
+                    "audit",
+                    artifact_type=L2_PRIMITIVE_AUDIT_TYPE,
+                    schema_version=L2_PRIMITIVE_AUDIT_SCHEMA_VERSION,
+                    partition_keys=partition,
+                    row_count=l2_output.audit.num_rows,
+                    time_min=audit_time_min,
+                    time_max=audit_time_max,
+                    quality_flags=tuple(quality_flags),
+                )
+                pq.write_table(l2_output.audit, audit_path, compression="zstd", version="2.6")
+                pending_audit_ref = transaction.register_output("audit")
+            stage_artifacts = {"result": pending_ref}
+            if pending_audit_ref is not None:
+                stage_artifacts["audit"] = pending_audit_ref
             stage_result = StageResult(
-                artifacts={"result": pending_ref},
+                artifacts=stage_artifacts,
                 metrics=metrics,
                 warnings=tuple(sorted(provider_reasons)),
             )
             prepared = transaction.prepare(stage_result, run_context.code_revision)
             result_ref = prepared["result"]
+            audit_ref = prepared.get("audit")
             result_doc = self._make_feature_result(
                 context=context,
                 work=work,
                 feature=feature,
                 result_ref=result_ref,
+                audit_ref=audit_ref,
                 fingerprint=fingerprint,
                 input_result_refs=input_result_refs,
                 attempt=attempt,
@@ -766,9 +845,13 @@ class ResearchExecutor:
                 invalid_reason_counts=invalid_counts,
                 quality_flags=quality_flags,
                 output=output,
+                source_evidence=source_evidence,
             )
+            prepared_refs = [result_ref]
+            if audit_ref is not None:
+                prepared_refs.append(audit_ref)
             receipt = self._make_receipt(
-                context, work, result_doc, result_ref, attempt, stage_run_id,
+                context, work, result_doc, prepared_refs, attempt, stage_run_id,
                 transaction.final_root,
             )
             receipt_path = self._receipt_path(run_id, work_key, attempt)
@@ -789,6 +872,9 @@ class ResearchExecutor:
             self._inject_fault("before_db_commit", fault_context)
             result_doc["artifacts"][0]["artifact_ref"] = published["result"].to_dict()
             result_doc["artifacts"][0]["hash"] = published["result"].content_hash
+            if audit_ref is not None:
+                result_doc["artifacts"][1]["artifact_ref"] = published["audit"].to_dict()
+                result_doc["artifacts"][1]["hash"] = published["audit"].content_hash
             self._validate_result_for_work(result_doc, context, work, set())
             self._registry.commit_research_result(
                 run_id=run_id, work_key=work_key, stage_run_id=stage_run_id,
@@ -860,6 +946,19 @@ class ResearchExecutor:
         if source is None:
             raise UnknownReferenceError(f"unknown DataSource ref: {source_ref}")
         return source
+
+    def _l2_reader(self, source_ref: str, source: dict[str, Any]) -> OnboardingDataSourceReader:
+        if source.get("format") != "l2_onboarding_source_v1":
+            raise ArtifactValidationError(
+                "builtin.l2_primitives requires format l2_onboarding_source_v1"
+            )
+        source_id, version = parse_versioned_ref(source_ref, "work.source_ref")
+        key = (source_id, version)
+        reader = self._source_reader_cache.get(key)
+        if reader is None:
+            reader = OnboardingDataSourceReader(source)
+            self._source_reader_cache[key] = reader
+        return reader
 
     def _read_source_values(self, source: dict[str, Any], work: dict[str, Any]) -> pa.Table:
         if str(source.get("format", "")).lower() not in {"parquet", "parquet_v1"}:
@@ -979,16 +1078,19 @@ class ResearchExecutor:
 
     def _make_feature_result(self, *, context: dict[str, Any], work: dict[str, Any],
                              feature: dict[str, Any], result_ref: ArtifactRef,
+                             audit_ref: ArtifactRef | None,
                              fingerprint: str, input_result_refs: list[str], attempt: int,
                              stage_run_id: str, stage_name: str, stage_version: str,
                              source: dict[str, Any], n_total: int, n_valid: int,
                              invalid_reason_counts: dict[str, int], quality_flags: list[str],
-                             output: pa.Table) -> dict[str, Any]:
+                             output: pa.Table,
+                             source_evidence: dict[str, Any] | None = None) -> dict[str, Any]:
         scope = dict(work["partition_scope"])
         time_min, time_max = self._time_bounds(output)
         result_seed = {
             "computation_fingerprint": fingerprint,
             "artifact_hash": result_ref.content_hash,
+            "audit_artifact_hash": None if audit_ref is None else audit_ref.content_hash,
             "producer_run_id": context["run_id"],
             "producer_work_key": work["work_key"],
             "attempt": attempt,
@@ -1005,6 +1107,16 @@ class ResearchExecutor:
             ],
             "row_count": n_total,
         }
+        descriptors = [descriptor]
+        if audit_ref is not None:
+            descriptors.append({
+                "artifact_role": "primitive_audit",
+                "artifact_ref": audit_ref.to_dict(),
+                "hash": audit_ref.content_hash,
+                "schema": audit_ref.schema_version,
+                "columns": list(L2_PRIMITIVE_AUDIT_SCHEMA.names),
+                "row_count": audit_ref.row_count,
+            })
         split_ref = {**context["request"]["split_ref"],
                      "split_id": context["plan"]["split_id"]}
         availability_mode = source.get("availability_mode", "research_only")
@@ -1038,7 +1150,7 @@ class ResearchExecutor:
             "producer_stage_version": stage_version,
             "producer_attempt": attempt,
             "computation_fingerprint": fingerprint,
-            "artifacts": [descriptor],
+            "artifacts": descriptors,
             "coverage": {
                 "processed_complete": True,
                 "processed_intervals": [dict(scope)],
@@ -1069,12 +1181,13 @@ class ResearchExecutor:
                 "sampling": feature.get("sampling", {}),
                 "time_min": time_min,
                 "time_max": time_max,
+                **({"source_evidence": source_evidence} if source_evidence is not None else {}),
             },
             "created_at": _now(),
         }
 
     def _make_receipt(self, context: dict[str, Any], work: dict[str, Any],
-                      result: dict[str, Any], result_ref: ArtifactRef, attempt: int,
+                      result: dict[str, Any], result_refs: list[ArtifactRef], attempt: int,
                       stage_run_id: str, final_root: Path) -> dict[str, Any]:
         attempt_id = f"{stage_run_id}:attempt:{attempt}"
         receipt_id = "receipt_" + hashlib.sha256(
@@ -1092,7 +1205,7 @@ class ResearchExecutor:
             "attempt_id": attempt_id,
             "computation_fingerprint": result["computation_fingerprint"],
             "result": result,
-            "artifact_refs": [result_ref.to_dict()],
+            "artifact_refs": [ref.to_dict() for ref in result_refs],
             "final_bundle_uri": final_root.as_uri(),
             "created_at": _now(),
         }

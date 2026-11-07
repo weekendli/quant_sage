@@ -1,6 +1,6 @@
 # QuantSage Discovery Engine
 
-QuantSage is a Python framework for reproducible empirical research over irregular market data. The repository implements the generic Step 01 workflow engine, the CFFEX government-bond-futures L2 data onboarding stage (Step 02), and the 02-A frozen-source/metadata/gap adapter. Step 02 completed full 79-month onboarding and independent artifact verification; the adapted `cffex_treasury_l2_full79@2` DataSource now exposes bounded refs, session intervals and traceable gap evidence. Step 03 and later computations remain unimplemented. See the [Step 02 results](docs/steps/02_data_onboarding/RESULTS.md) for frozen entries, verification, adapted-source hashes, counts, commands and research limits.
+QuantSage is a Python framework for reproducible empirical research over irregular market data. The repository implements the generic Step 01 workflow engine, the CFFEX government-bond-futures L2 data onboarding stage (Step 02), the 02-A frozen-source/metadata/gap adapter, and 03-A basic L2 primitives. The adapted `cffex_treasury_l2_full79@2` DataSource exposes bounded refs, session intervals and traceable gap evidence; 03-A publishes primary primitive values with row-level source audits. Step 03 remains partial pending 03-B, and later computations are not implemented. See [Step 02](docs/steps/02_data_onboarding/RESULTS.md) and [Step 03](docs/steps/03_research_dimensions_and_primitives/RESULTS.md) results.
 
 ## Install and verify
 

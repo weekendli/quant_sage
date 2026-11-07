@@ -1236,7 +1236,10 @@ class OnboardingDataSourceReader:
     """Bounded reader over one adapted, frozen onboarding DataSource."""
 
     def __init__(self, source_document: dict[str, Any], *, verify_hashes: bool = True):
-        self._source = validate_source_document(source_document)
+        contract_document = {
+            key: value for key, value in source_document.items() if key != "created_at"
+        }
+        self._source = validate_source_document(contract_document)
         self._verify_hashes = verify_hashes
         self._index = self._load_source_index()
         self._partition_index = {

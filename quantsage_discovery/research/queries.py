@@ -298,6 +298,23 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
+def _value_descriptors(result: dict[str, Any]) -> list[dict[str, Any]]:
+    descriptors = result.get("artifacts")
+    if not isinstance(descriptors, list) or not descriptors:
+        raise ResearchValidationError("FeatureResult has no artifact descriptors")
+    values = [
+        descriptor for descriptor in descriptors
+        if isinstance(descriptor, dict)
+        and (
+            descriptor.get("artifact_role") == "feature_values"
+            or descriptor.get("artifact_ref", {}).get("artifact_type") == "feature_values"
+        )
+    ]
+    if not values:
+        raise ResearchValidationError("FeatureResult has no primary feature_values artifact")
+    return values
+
+
 class ResearchQueries:
     """Read bounded result and Study evidence without changing frozen execution state."""
 
@@ -499,11 +516,8 @@ class ResearchQueries:
                 )
         allowed_by_result: dict[str, set[str]] = {}
         for result in results:
-            descriptors = result.get("artifacts")
-            if not isinstance(descriptors, list) or not descriptors:
-                raise ResearchValidationError("FeatureResult has no artifact descriptors")
             declared = set()
-            for descriptor in descriptors:
+            for descriptor in _value_descriptors(result):
                 if not isinstance(descriptor, dict) or not isinstance(descriptor.get("columns"), list):
                     raise ResearchValidationError("FeatureResult artifact columns are malformed")
                 declared.update(descriptor["columns"])
@@ -528,8 +542,7 @@ class ResearchQueries:
         row_offset = 0
         has_more = False
         for result in results:
-            descriptors = result["artifacts"]
-            for descriptor in descriptors:
+            for descriptor in _value_descriptors(result):
                 def add_row(data_row, result=result):
                     nonlocal row_offset, has_more
                     if row_offset < offset:
@@ -963,7 +976,7 @@ class ResearchQueries:
                       deadline: float | None = None) -> dict[str, int]:
         total = valid = 0
         deadline = deadline if deadline is not None else time.perf_counter() + _QUERY_TIMEOUT_S
-        for descriptor in result.get("artifacts", []):
+        for descriptor in _value_descriptors(result):
             count, good = self._scan_artifact(
                 result, descriptor,
                 data_columns=["event_time", "instrument_id", "trade_date", "session_id", "value"],
