@@ -1,10 +1,10 @@
 # QuantSage · Implementation and Stepwise Documentation
 
-本仓库包含 Python 工作流实现和分步工程文档，用于在不规则金融时序数据上开展可复现研究。Step 01 工作流引擎、Step 02 国债期货 L2 接入、02-A 冻结源/gap 适配以及 Step 03 primitives 已实现并验证；下一步为 04-A。目录完整性不代表全部 50 个快照名称已完成真实数值执行，详见 [Step 03 RESULTS](steps/03_research_dimensions_and_primitives/RESULTS.md)。
+本仓库包含 Python 工作流实现和分步工程文档，用于在不规则金融时序数据上开展可复现研究。Step 01/02、02-A、Step 03 primitives 和 04-A business ready 子集已实现并验证；下一步为 05-A。Step 04 仍因 F07/F08 聚合未决而保持 PARTIAL，详见 [Step 04 RESULTS](steps/04_business_features/RESULTS.md)。
 
 ## 首次使用
 
-当前 Study / FeatureSet / Run 与 Step 02–05 闭环按 [分步执行规格](EXECUTION_SPEC.md) 的最新执行记录接续；01-A～01-G、02-A、03-A 与 03-B 已完成，不从头重做。每次只执行一个增量，配套阅读 [计算技术方案与执行验收手册](COMPUTATION_PLAN.md)。该规格区分已有阶段交付与本次管理/计算扩展，不把历史 COMPLETE 当作新扩展完成。
+当前 Study / FeatureSet / Run 与 Step 02–05 闭环按 [分步执行规格](EXECUTION_SPEC.md) 的最新执行记录接续；01-A～01-G、02-A、03-A/03-B 与 04-A 已完成，不从头重做。每次只执行一个增量，配套阅读 [计算技术方案与执行验收手册](COMPUTATION_PLAN.md)。该规格区分已有阶段交付与本次管理/计算扩展，不把历史 COMPLETE 当作新扩展完成。
 
 1. 在仓库根目录阅读 [AGENTS.md](../AGENTS.md) 和 [implementation status](IMPLEMENTATION_STATUS.md)。
 2. 从 [STEP_INDEX.md](STEP_INDEX.md) 选择一个尚未实现的模块；Step 01 和 Step 02 已完成。

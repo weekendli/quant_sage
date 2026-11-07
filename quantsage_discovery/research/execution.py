@@ -37,6 +37,13 @@ from quantsage_discovery.core.types import (
 )
 from quantsage_discovery.core.utils import canonical_json
 
+from .business_windows import (
+    BUSINESS_AUDIT_SCHEMA,
+    BUSINESS_AUDIT_SCHEMA_VERSION,
+    BUSINESS_AUDIT_TYPE,
+    compute_business_window,
+    validate_business_audit_parquet,
+)
 from .catalog import FeatureCatalog
 from .errors import (
     PlanChangedError,
@@ -130,6 +137,11 @@ class ResearchExecutor:
             L2_PRIMITIVE_AUDIT_TYPE,
             L2_PRIMITIVE_AUDIT_SCHEMA_VERSION,
             validate_l2_primitive_audit_parquet,
+        )
+        self._store.register_validator(
+            BUSINESS_AUDIT_TYPE,
+            BUSINESS_AUDIT_SCHEMA_VERSION,
+            validate_business_audit_parquet,
         )
 
     def find_verified_result(self, run_context_dict: dict[str, Any], work: dict[str, Any],
@@ -402,6 +414,9 @@ class ResearchExecutor:
             ) or (
                 ref.artifact_type == L2_PRIMITIVE_AUDIT_TYPE
                 and ref.schema_version == L2_PRIMITIVE_AUDIT_SCHEMA_VERSION
+            ) or (
+                ref.artifact_type == BUSINESS_AUDIT_TYPE
+                and ref.schema_version == BUSINESS_AUDIT_SCHEMA_VERSION
             )
             if not supported:
                 raise WorkflowError("FeatureResult artifact has an unsupported schema")
@@ -664,6 +679,11 @@ class ResearchExecutor:
         fingerprint = self._computation_fingerprint(context, work, input_result_refs)
         input_artifacts: dict[str, ArtifactRef] = {}
         input_tables: list[pa.Table] = []
+        input_tables_by_role: dict[str, dict[str, Any]] = {}
+        bindings = feature.get("input_bindings") or [
+            {"role": f"input_{index}", "feature_ref": ref}
+            for index, ref in enumerate(expected_input_refs)
+        ]
         for index, result in enumerate(ordered_inputs):
             refs = self._result_artifact_map(result)
             value_refs = [
@@ -680,13 +700,19 @@ class ResearchExecutor:
                 **(work.get("read_scope") or {}),
             }
             input_tables.append(self._filter_feature_table(table, dependency_scope))
+            if index < len(bindings):
+                input_tables_by_role[bindings[index]["role"]] = {
+                    "table": input_tables[-1],
+                    "result": result,
+                }
 
         source = self._source(work["source_ref"])
         implementation = feature.get("implementation", {})
         provider_key = implementation.get("metric_provider_key") or implementation.get("provider_key")
         l2_provider = provider_key == "builtin.l2_primitives"
-        if l2_provider:
-            if input_tables:
+        business_provider = provider_key == "builtin.business_windows"
+        if l2_provider or business_provider:
+            if l2_provider and input_tables:
                 raise ArtifactValidationError(
                     "Step 03-A L2 primitives do not accept dependency value tables"
                 )
@@ -756,7 +782,12 @@ class ResearchExecutor:
         )
         try:
             l2_output = None
+            business_output = None
             source_evidence = None
+            audit_table = None
+            audit_type = None
+            audit_schema_version = None
+            audit_columns = None
             if l2_provider:
                 reader = self._l2_reader(work["source_ref"], source)
                 l2_output = compute_l2_primitive(
@@ -769,6 +800,20 @@ class ResearchExecutor:
                 transformed = l2_output.values
                 provider_reasons = l2_output.provider_reasons
                 source_evidence = l2_output.source_evidence
+                audit_table = l2_output.audit
+                audit_type = L2_PRIMITIVE_AUDIT_TYPE
+                audit_schema_version = L2_PRIMITIVE_AUDIT_SCHEMA_VERSION
+                audit_columns = list(L2_PRIMITIVE_AUDIT_SCHEMA.names)
+            elif business_provider:
+                business_output = compute_business_window(
+                    feature, input_tables_by_role, work["partition_scope"],
+                )
+                transformed = business_output.values
+                provider_reasons = business_output.provider_reasons
+                audit_table = business_output.audit
+                audit_type = BUSINESS_AUDIT_TYPE
+                audit_schema_version = BUSINESS_AUDIT_SCHEMA_VERSION
+                audit_columns = list(BUSINESS_AUDIT_SCHEMA.names)
             else:
                 transformed, provider_reasons = transform_values(provider_key, feature, raw_inputs)
             output = self._filter_feature_table(transformed, partition)
@@ -777,9 +822,16 @@ class ResearchExecutor:
             n_valid = sum(value is not None and math.isfinite(value) for value in values)
             invalid_counts = (
                 dict(l2_output.invalid_reason_counts) if l2_output is not None
-                else ({"NA_VALUE": n_total - n_valid} if n_total > n_valid else {})
+                else (
+                    dict(business_output.invalid_reason_counts)
+                    if business_output is not None
+                    else ({"NA_VALUE": n_total - n_valid} if n_total > n_valid else {})
+                )
             )
-            quality_flags = list(l2_output.quality_flags) if l2_output is not None else []
+            quality_flags = (
+                list(l2_output.quality_flags) if l2_output is not None
+                else (list(business_output.quality_flags) if business_output is not None else [])
+            )
             if n_total == 0:
                 if "ZERO_OBSERVATIONS" not in quality_flags:
                     quality_flags.append("ZERO_OBSERVATIONS")
@@ -802,19 +854,19 @@ class ResearchExecutor:
             pq.write_table(output, output_path, compression="zstd", version="2.6")
             pending_ref = transaction.register_output("result")
             pending_audit_ref = None
-            if l2_output is not None:
-                audit_time_min, audit_time_max = self._time_bounds(l2_output.audit)
+            if audit_table is not None:
+                audit_time_min, audit_time_max = self._time_bounds(audit_table)
                 audit_path = transaction.reserve_output(
                     "audit",
-                    artifact_type=L2_PRIMITIVE_AUDIT_TYPE,
-                    schema_version=L2_PRIMITIVE_AUDIT_SCHEMA_VERSION,
+                    artifact_type=audit_type,
+                    schema_version=audit_schema_version,
                     partition_keys=partition,
-                    row_count=l2_output.audit.num_rows,
+                    row_count=audit_table.num_rows,
                     time_min=audit_time_min,
                     time_max=audit_time_max,
                     quality_flags=tuple(quality_flags),
                 )
-                pq.write_table(l2_output.audit, audit_path, compression="zstd", version="2.6")
+                pq.write_table(audit_table, audit_path, compression="zstd", version="2.6")
                 pending_audit_ref = transaction.register_output("audit")
             stage_artifacts = {"result": pending_ref}
             if pending_audit_ref is not None:
@@ -846,6 +898,8 @@ class ResearchExecutor:
                 quality_flags=quality_flags,
                 output=output,
                 source_evidence=source_evidence,
+                audit_schema_version=audit_schema_version,
+                audit_columns=audit_columns,
             )
             prepared_refs = [result_ref]
             if audit_ref is not None:
@@ -1084,7 +1138,9 @@ class ResearchExecutor:
                              source: dict[str, Any], n_total: int, n_valid: int,
                              invalid_reason_counts: dict[str, int], quality_flags: list[str],
                              output: pa.Table,
-                             source_evidence: dict[str, Any] | None = None) -> dict[str, Any]:
+                             source_evidence: dict[str, Any] | None = None,
+                             audit_schema_version: str | None = None,
+                             audit_columns: list[str] | None = None) -> dict[str, Any]:
         scope = dict(work["partition_scope"])
         time_min, time_max = self._time_bounds(output)
         result_seed = {
@@ -1110,11 +1166,14 @@ class ResearchExecutor:
         descriptors = [descriptor]
         if audit_ref is not None:
             descriptors.append({
-                "artifact_role": "primitive_audit",
+                "artifact_role": (
+                    "window_audit" if audit_schema_version == BUSINESS_AUDIT_SCHEMA_VERSION
+                    else "primitive_audit"
+                ),
                 "artifact_ref": audit_ref.to_dict(),
                 "hash": audit_ref.content_hash,
                 "schema": audit_ref.schema_version,
-                "columns": list(L2_PRIMITIVE_AUDIT_SCHEMA.names),
+                "columns": audit_columns or [],
                 "row_count": audit_ref.row_count,
             })
         split_ref = {**context["request"]["split_ref"],

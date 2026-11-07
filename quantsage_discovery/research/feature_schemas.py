@@ -28,6 +28,7 @@ _NS_FACTORS = {
 }
 _TRUSTED_PROVIDER_KEYS = {
     "builtin.arithmetic",
+    "builtin.business_windows",
     "builtin.identity",
     "builtin.l2_primitives",
 }
@@ -321,8 +322,8 @@ def validate_feature_set_draft(document: Any) -> dict[str, Any]:
 def _validate_recipe(value: Any, item_path: str) -> dict[str, Any]:
     path = f"{item_path}.recipe"
     required = {"template_ref", "step", "parameters"}
-    optional = {"input", "lookback", "profile_window", "sampling", "validity", "metrics",
-                "metric_set_ref"}
+    optional = {"input", "inputs", "lookback", "profile_window", "max_endpoint_age",
+                "sampling", "validity", "metrics", "metric_set_ref"}
     recipe = _obj(value, required, optional, path)
     parse_resource_ref(recipe["template_ref"], f"{path}.template_ref")
     if type(recipe["step"]) is not int or recipe["step"] not in {3, 4, 5}:
@@ -331,27 +332,27 @@ def _validate_recipe(value: Any, item_path: str) -> dict[str, Any]:
         raise _error(f"{path}.parameters", "must be an object")
     result = {"template_ref": recipe["template_ref"], "step": recipe["step"],
               "parameters": recipe["parameters"]}
+    if "input" in recipe and "inputs" in recipe:
+        raise _error(path, "input and inputs are mutually exclusive")
     if "input" in recipe:
-        inp = recipe["input"]
-        inp = _obj(inp, set(), {"input_feature_ref", "item_id", "output_id"}, f"{path}.input")
-        has_feature = "input_feature_ref" in inp
-        has_item = "item_id" in inp
-        if has_feature == has_item:
-            raise _error(f"{path}.input", "requires exactly input_feature_ref or item_id")
-        if has_feature:
-            if "output_id" in inp:
-                raise _error(f"{path}.input", "output_id is only valid with item_id")
-            parse_feature_ref(inp["input_feature_ref"], f"{path}.input.input_feature_ref")
-            result["input"] = {"input_feature_ref": inp["input_feature_ref"]}
-        else:
-            item_id = _text(inp["item_id"], f"{path}.input.item_id")
-            out = {"item_id": item_id}
-            if "output_id" in inp:
-                out["output_id"] = _text(inp["output_id"], f"{path}.input.output_id")
-            result["input"] = out
+        result["input"] = _validate_input_reference(recipe["input"], f"{path}.input")
+    if "inputs" in recipe:
+        if not isinstance(recipe["inputs"], dict) or not recipe["inputs"]:
+            raise _error(f"{path}.inputs", "must be a non-empty object")
+        inputs = {}
+        for role, inp in recipe["inputs"].items():
+            role = _text(role, f"{path}.inputs role")
+            if not _ID_RE.fullmatch(role):
+                raise _error(f"{path}.inputs role", "must be a stable identifier")
+            inputs[role] = _validate_input_reference(inp, f"{path}.inputs.{role}")
+        result["inputs"] = inputs
     for field in ("lookback", "profile_window"):
         if field in recipe:
             result[field] = normalize_duration(recipe[field], f"{path}.{field}")
+    if "max_endpoint_age" in recipe:
+        result["max_endpoint_age"] = normalize_duration(
+            recipe["max_endpoint_age"], f"{path}.max_endpoint_age"
+        )
     if "sampling" in recipe:
         result["sampling"] = _normalize_sampling(recipe["sampling"], f"{path}.sampling")
     if "validity" in recipe:
@@ -372,6 +373,24 @@ def _validate_recipe(value: Any, item_path: str) -> dict[str, Any]:
         parse_resource_ref(recipe["metric_set_ref"], f"{path}.metric_set_ref")
         result["metric_set_ref"] = recipe["metric_set_ref"]
     return result
+
+
+def _validate_input_reference(value: Any, path: str) -> dict[str, Any]:
+    inp = _obj(value, set(), {"input_feature_ref", "item_id", "output_id"}, path)
+    has_feature = "input_feature_ref" in inp
+    has_item = "item_id" in inp
+    if has_feature == has_item:
+        raise _error(path, "requires exactly input_feature_ref or item_id")
+    if has_feature:
+        if "output_id" in inp:
+            raise _error(path, "output_id is only valid with item_id")
+        parse_feature_ref(inp["input_feature_ref"], f"{path}.input_feature_ref")
+        return {"input_feature_ref": inp["input_feature_ref"]}
+    item_id = _text(inp["item_id"], f"{path}.item_id")
+    out = {"item_id": item_id}
+    if "output_id" in inp:
+        out["output_id"] = _text(inp["output_id"], f"{path}.output_id")
+    return out
 
 
 def normalize_duration(value: Any, path: str) -> str:
