@@ -37,6 +37,13 @@ from quantsage_discovery.core.types import (
 )
 from quantsage_discovery.core.utils import canonical_json
 
+from .business_windows import (
+    BUSINESS_AUDIT_SCHEMA,
+    BUSINESS_AUDIT_SCHEMA_VERSION,
+    BUSINESS_AUDIT_TYPE,
+    compute_business_window,
+    validate_business_audit_parquet,
+)
 from .catalog import FeatureCatalog
 from .errors import (
     PlanChangedError,
@@ -46,6 +53,16 @@ from .errors import (
     UnknownReferenceError,
 )
 from .execution_view import active_linked_result
+from .gap_policy import GAP_POLICY_VERSION
+from .l2_primitives import (
+    L2_PRIMITIVE_AUDIT_SCHEMA,
+    L2_PRIMITIVE_AUDIT_SCHEMA_VERSION,
+    L2_PRIMITIVE_AUDIT_TYPE,
+    compute_l2_primitive,
+    primitive_source_fields,
+    validate_l2_primitive_audit_parquet,
+)
+from .onboarding_adapter import OnboardingDataSourceReader
 from .planner import RunPlanner
 from .providers import (
     FEATURE_VALUES_ARTIFACT_TYPE,
@@ -57,6 +74,14 @@ from .providers import (
 )
 from .repository import ResearchRepository
 from .schemas import parse_versioned_ref
+from .statistical_windows import (
+    STATISTICAL_AUDIT_SCHEMA,
+    STATISTICAL_AUDIT_SCHEMA_VERSION,
+    STATISTICAL_AUDIT_TYPE,
+    compute_statistical_window,
+    validate_statistical_audit_parquet,
+    validate_statistical_input,
+)
 
 _SAFE_PATH_PART = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _DURATION_NS = re.compile(r"^(\d+)ns$")
@@ -112,10 +137,26 @@ class ResearchExecutor:
         if fault_hook is not None and not callable(fault_hook):
             raise TypeError("fault_hook must be callable or None")
         self._fault_hook = fault_hook
+        self._source_reader_cache: dict[tuple[str, int], OnboardingDataSourceReader] = {}
         self._store.register_validator(
             FEATURE_VALUES_ARTIFACT_TYPE,
             FEATURE_VALUES_SCHEMA_VERSION,
             validate_feature_values_parquet,
+        )
+        self._store.register_validator(
+            L2_PRIMITIVE_AUDIT_TYPE,
+            L2_PRIMITIVE_AUDIT_SCHEMA_VERSION,
+            validate_l2_primitive_audit_parquet,
+        )
+        self._store.register_validator(
+            BUSINESS_AUDIT_TYPE,
+            BUSINESS_AUDIT_SCHEMA_VERSION,
+            validate_business_audit_parquet,
+        )
+        self._store.register_validator(
+            STATISTICAL_AUDIT_TYPE,
+            STATISTICAL_AUDIT_SCHEMA_VERSION,
+            validate_statistical_audit_parquet,
         )
 
     def find_verified_result(self, run_context_dict: dict[str, Any], work: dict[str, Any],
@@ -261,7 +302,7 @@ class ResearchExecutor:
                 ),
             })
         identity = {
-            "schema_version": "feature_computation_identity_v1",
+            "schema_version": "feature_computation_identity_v2",
             "feature_ref": work["feature_ref"],
             "definition_hash": work["definition_hash"],
             "source_ref": work["source_ref"],
@@ -272,6 +313,9 @@ class ResearchExecutor:
             },
             "partition_scope": work["partition_scope"],
             "required_history": work["required_history"],
+            "read_scope": work.get("read_scope"),
+            "gap_policy_version": GAP_POLICY_VERSION,
+            "gap_manifest_ref": self._source(work["source_ref"]).get("gap_manifest_ref"),
             "input_result_refs": dependency_identity,
             "implementation": feature.get("implementation", {}),
             "runtime": {
@@ -344,8 +388,12 @@ class ResearchExecutor:
             raise WorkflowError(f"FeatureResult {result_id} input feature lineage does not match")
 
         artifacts = self._verify_result_artifacts(result)
-        if sum(ref.row_count or 0 for ref in artifacts) != n_total:
-            raise WorkflowError(f"FeatureResult {result_id} row count does not match artifacts")
+        primary_rows = sum(
+            ref.row_count or 0 for ref in artifacts
+            if ref.artifact_type == FEATURE_VALUES_ARTIFACT_TYPE
+        )
+        if primary_rows != n_total:
+            raise WorkflowError(f"FeatureResult {result_id} row count does not match value artifacts")
         for input_result in input_results:
             self._verify_stored_result(input_result, seen)
         return artifacts
@@ -371,14 +419,27 @@ class ResearchExecutor:
         if not isinstance(descriptors, list) or not descriptors:
             raise WorkflowError("FeatureResult artifacts must be a non-empty array")
         refs = []
+        primary_refs = []
         for descriptor in descriptors:
             if not isinstance(descriptor, dict) or not isinstance(descriptor.get("artifact_ref"), dict):
                 raise WorkflowError("FeatureResult artifact descriptor is malformed")
             ref = ArtifactRef.from_dict(descriptor["artifact_ref"])
             if descriptor.get("hash") != ref.content_hash:
                 raise WorkflowError("FeatureResult artifact descriptor hash does not match its ref")
-            if (ref.artifact_type != FEATURE_VALUES_ARTIFACT_TYPE
-                    or ref.schema_version != FEATURE_VALUES_SCHEMA_VERSION):
+            supported = (
+                ref.artifact_type == FEATURE_VALUES_ARTIFACT_TYPE
+                and ref.schema_version == FEATURE_VALUES_SCHEMA_VERSION
+            ) or (
+                ref.artifact_type == L2_PRIMITIVE_AUDIT_TYPE
+                and ref.schema_version == L2_PRIMITIVE_AUDIT_SCHEMA_VERSION
+            ) or (
+                ref.artifact_type == BUSINESS_AUDIT_TYPE
+                and ref.schema_version == BUSINESS_AUDIT_SCHEMA_VERSION
+            ) or (
+                ref.artifact_type == STATISTICAL_AUDIT_TYPE
+                and ref.schema_version == STATISTICAL_AUDIT_SCHEMA_VERSION
+            )
+            if not supported:
                 raise WorkflowError("FeatureResult artifact has an unsupported schema")
             expected = {
                 "run_id": result["producer_run_id"],
@@ -389,10 +450,14 @@ class ResearchExecutor:
                 "split_id": result["split_ref"]["split_id"],
             }
             self._store.verify(ref, expected=expected)
-            if ref.row_count != result["quality"]["n_total"]:
-                raise WorkflowError("FeatureResult quality count does not match artifact row count")
+            if ref.artifact_type == FEATURE_VALUES_ARTIFACT_TYPE:
+                primary_refs.append(ref)
             refs.append(ref)
-        validate_feature_result_payload(refs, result)
+        if not primary_refs:
+            raise WorkflowError("FeatureResult has no primary feature_values artifact")
+        if sum(ref.row_count or 0 for ref in primary_refs) != result["quality"]["n_total"]:
+            raise WorkflowError("FeatureResult quality count does not match value artifacts")
+        validate_feature_result_payload(primary_refs, result)
         return refs
 
     def _record_result_health(self, result: dict[str, Any], reason: str) -> dict[str, Any] | None:
@@ -635,11 +700,20 @@ class ResearchExecutor:
         fingerprint = self._computation_fingerprint(context, work, input_result_refs)
         input_artifacts: dict[str, ArtifactRef] = {}
         input_tables: list[pa.Table] = []
+        input_tables_by_role: dict[str, dict[str, Any]] = {}
+        bindings = feature.get("input_bindings") or [
+            {"role": f"input_{index}", "feature_ref": ref}
+            for index, ref in enumerate(expected_input_refs)
+        ]
         for index, result in enumerate(ordered_inputs):
             refs = self._result_artifact_map(result)
-            if len(refs) != 1:
-                raise WorkflowError("synthetic provider requires one verified value artifact per input")
-            ref = next(iter(refs.values()))
+            value_refs = [
+                ref for role, ref in refs.items()
+                if role == "feature_values" or ref.artifact_type == FEATURE_VALUES_ARTIFACT_TYPE
+            ]
+            if len(value_refs) != 1:
+                raise WorkflowError("provider requires exactly one verified value artifact per input")
+            ref = value_refs[0]
             input_artifacts[f"input_{index}"] = ref
             table = pq.read_table(artifact_path(ref.uri))
             dependency_scope = {
@@ -647,9 +721,38 @@ class ResearchExecutor:
                 **(work.get("read_scope") or {}),
             }
             input_tables.append(self._filter_feature_table(table, dependency_scope))
+            if index < len(bindings):
+                audit_table_for_input = None
+                for audit_role, audit_ref in refs.items():
+                    if audit_role in {"window_audit", "statistical_audit", "primitive_audit"}:
+                        audit_table_for_input = pq.read_table(artifact_path(audit_ref.uri))
+                        break
+                input_tables_by_role[bindings[index]["role"]] = {
+                    "table": input_tables[-1],
+                    "audit": audit_table_for_input,
+                    "result": result,
+                }
 
         source = self._source(work["source_ref"])
-        if input_tables:
+        implementation = feature.get("implementation", {})
+        provider_key = implementation.get("metric_provider_key") or implementation.get("provider_key")
+        l2_provider = provider_key == "builtin.l2_primitives"
+        business_provider = provider_key == "builtin.business_windows"
+        statistical_provider = provider_key == "builtin.statistical_windows"
+        window_context = None
+        if business_provider or statistical_provider:
+            window_context = self._window_gap_context(
+                source=source,
+                work=work,
+                input_tables_by_role=input_tables_by_role,
+            )
+        if l2_provider or business_provider or statistical_provider:
+            if l2_provider and input_tables:
+                raise ArtifactValidationError(
+                    "Step 03-A L2 primitives do not accept dependency value tables"
+                )
+            raw_inputs = None
+        elif input_tables:
             if len(input_tables) > 1:
                 tables = [table for table in input_tables if table.num_rows]
                 raw_inputs = pa.concat_tables(tables) if tables else input_tables[0].slice(0, 0)
@@ -713,18 +816,78 @@ class ResearchExecutor:
             publication_id=publication_id,
         )
         try:
-            implementation = feature.get("implementation", {})
-            provider_key = implementation.get("metric_provider_key") or implementation.get("provider_key")
-            transformed, provider_reasons = transform_values(provider_key, feature, raw_inputs)
+            l2_output = None
+            business_output = None
+            source_evidence = None
+            audit_table = None
+            audit_type = None
+            audit_schema_version = None
+            audit_columns = None
+            if l2_provider:
+                reader = self._l2_reader(work["source_ref"], source)
+                l2_output = compute_l2_primitive(
+                    reader,
+                    source,
+                    feature,
+                    work["partition_scope"],
+                    work.get("read_scope") or work["partition_scope"],
+                )
+                transformed = l2_output.values
+                provider_reasons = l2_output.provider_reasons
+                source_evidence = l2_output.source_evidence
+                audit_table = l2_output.audit
+                audit_type = L2_PRIMITIVE_AUDIT_TYPE
+                audit_schema_version = L2_PRIMITIVE_AUDIT_SCHEMA_VERSION
+                audit_columns = list(L2_PRIMITIVE_AUDIT_SCHEMA.names)
+            elif business_provider or statistical_provider:
+                if statistical_provider:
+                    input_feature = self._catalog.get_feature(expected_input_refs[0])
+                    validate_statistical_input(input_feature, [feature["metric_ref"]])
+                    business_output = compute_statistical_window(
+                        feature,
+                        input_tables_by_role.get("input"),
+                        work["partition_scope"],
+                        work.get("read_scope") or {},
+                        input_feature,
+                        input_audit=input_tables_by_role.get("input", {}).get("audit"),
+                        gap_context=window_context,
+                    )
+                    audit_type = STATISTICAL_AUDIT_TYPE
+                    audit_schema_version = STATISTICAL_AUDIT_SCHEMA_VERSION
+                    audit_columns = list(STATISTICAL_AUDIT_SCHEMA.names)
+                else:
+                    business_output = compute_business_window(
+                        feature, input_tables_by_role, work["partition_scope"],
+                        context=window_context,
+                    )
+                    audit_type = BUSINESS_AUDIT_TYPE
+                    audit_schema_version = BUSINESS_AUDIT_SCHEMA_VERSION
+                    audit_columns = list(BUSINESS_AUDIT_SCHEMA.names)
+                transformed = business_output.values
+                provider_reasons = business_output.provider_reasons
+                audit_table = business_output.audit
+            else:
+                transformed, provider_reasons = transform_values(provider_key, feature, raw_inputs)
             output = self._filter_feature_table(transformed, partition)
             n_total = output.num_rows
             values = output["value"].to_pylist()
             n_valid = sum(value is not None and math.isfinite(value) for value in values)
-            invalid_counts = {"NA_VALUE": n_total - n_valid} if n_total > n_valid else {}
-            quality_flags = []
+            invalid_counts = (
+                dict(l2_output.invalid_reason_counts) if l2_output is not None
+                else (
+                    dict(business_output.invalid_reason_counts)
+                    if business_output is not None
+                    else ({"NA_VALUE": n_total - n_valid} if n_total > n_valid else {})
+                )
+            )
+            quality_flags = (
+                list(l2_output.quality_flags) if l2_output is not None
+                else (list(business_output.quality_flags) if business_output is not None else [])
+            )
             if n_total == 0:
-                quality_flags.append("ZERO_OBSERVATIONS")
-            elif n_valid == 0:
+                if "ZERO_OBSERVATIONS" not in quality_flags:
+                    quality_flags.append("ZERO_OBSERVATIONS")
+            elif n_valid == 0 and "ALL_NA" not in quality_flags:
                 quality_flags.append("ALL_NA")
             metrics = {
                 "n_total": n_total,
@@ -742,18 +905,38 @@ class ResearchExecutor:
             )
             pq.write_table(output, output_path, compression="zstd", version="2.6")
             pending_ref = transaction.register_output("result")
+            pending_audit_ref = None
+            if audit_table is not None:
+                audit_time_min, audit_time_max = self._time_bounds(audit_table)
+                audit_path = transaction.reserve_output(
+                    "audit",
+                    artifact_type=audit_type,
+                    schema_version=audit_schema_version,
+                    partition_keys=partition,
+                    row_count=audit_table.num_rows,
+                    time_min=audit_time_min,
+                    time_max=audit_time_max,
+                    quality_flags=tuple(quality_flags),
+                )
+                pq.write_table(audit_table, audit_path, compression="zstd", version="2.6")
+                pending_audit_ref = transaction.register_output("audit")
+            stage_artifacts = {"result": pending_ref}
+            if pending_audit_ref is not None:
+                stage_artifacts["audit"] = pending_audit_ref
             stage_result = StageResult(
-                artifacts={"result": pending_ref},
+                artifacts=stage_artifacts,
                 metrics=metrics,
                 warnings=tuple(sorted(provider_reasons)),
             )
             prepared = transaction.prepare(stage_result, run_context.code_revision)
             result_ref = prepared["result"]
+            audit_ref = prepared.get("audit")
             result_doc = self._make_feature_result(
                 context=context,
                 work=work,
                 feature=feature,
                 result_ref=result_ref,
+                audit_ref=audit_ref,
                 fingerprint=fingerprint,
                 input_result_refs=input_result_refs,
                 attempt=attempt,
@@ -766,9 +949,15 @@ class ResearchExecutor:
                 invalid_reason_counts=invalid_counts,
                 quality_flags=quality_flags,
                 output=output,
+                source_evidence=source_evidence,
+                audit_schema_version=audit_schema_version,
+                audit_columns=audit_columns,
             )
+            prepared_refs = [result_ref]
+            if audit_ref is not None:
+                prepared_refs.append(audit_ref)
             receipt = self._make_receipt(
-                context, work, result_doc, result_ref, attempt, stage_run_id,
+                context, work, result_doc, prepared_refs, attempt, stage_run_id,
                 transaction.final_root,
             )
             receipt_path = self._receipt_path(run_id, work_key, attempt)
@@ -789,6 +978,9 @@ class ResearchExecutor:
             self._inject_fault("before_db_commit", fault_context)
             result_doc["artifacts"][0]["artifact_ref"] = published["result"].to_dict()
             result_doc["artifacts"][0]["hash"] = published["result"].content_hash
+            if audit_ref is not None:
+                result_doc["artifacts"][1]["artifact_ref"] = published["audit"].to_dict()
+                result_doc["artifacts"][1]["hash"] = published["audit"].content_hash
             self._validate_result_for_work(result_doc, context, work, set())
             self._registry.commit_research_result(
                 run_id=run_id, work_key=work_key, stage_run_id=stage_run_id,
@@ -854,12 +1046,90 @@ class ResearchExecutor:
             "invalid_reason_counts": quality.get("invalid_reason_counts", {}),
         }
 
+    def _window_gap_context(
+        self,
+        *,
+        source: dict[str, Any],
+        work: dict[str, Any],
+        input_tables_by_role: dict[str, dict[str, Any]],
+    ) -> dict[str, Any]:
+        read_scope = work.get("read_scope") or {}
+        session_start = read_scope.get("session_start")
+        authorized_start = read_scope.get("start")
+        if session_start is None or authorized_start is None:
+            raise ArtifactValidationError(
+                "window execution requires planner read_scope.start and session_start"
+            )
+        dependency_fields: dict[str, set[str]] = {}
+        warning_flags: dict[str, list[str]] = {}
+        for role, input_data in input_tables_by_role.items():
+            result = input_data["result"]
+            input_feature = self._catalog.get_feature(result["feature_ref"])
+            dependency_fields[role] = sorted(
+                self._feature_source_fields(input_feature, frozenset()),
+            )
+            source_evidence = (
+                result.get("time_metadata", {}).get("source_evidence", {})
+            )
+            warning_flags[role] = sorted(set(
+                source_evidence.get("warning_flags", [])
+            ))
+        events: list[dict[str, Any]] = []
+        if source.get("format") == "l2_onboarding_source_v1":
+            partition = work["partition_scope"]
+            reader = self._l2_reader(work["source_ref"], source)
+            events = reader.gap_events(
+                instrument_id=partition["instrument_id"],
+                trade_date=partition["trade_date"],
+                session_id=partition["session_id"],
+            ).to_pylist()
+        return {
+            "session_start": session_start,
+            "authorized_start": authorized_start,
+            "dependency_fields": dependency_fields,
+            "gap_events": events,
+            "gap_manifest_ref": source.get("gap_manifest_ref"),
+            "warning_flags": warning_flags,
+        }
+
+    def _feature_source_fields(
+        self,
+        feature: dict[str, Any],
+        visiting: frozenset[str],
+    ) -> set[str]:
+        feature_ref = f"{feature['feature_id']}@{feature['version']}"
+        if feature_ref in visiting:
+            raise WorkflowError("cyclic Feature dependencies in source-field resolution")
+        if feature["step"] == 3:
+            primitive_id = feature.get("source_requirements", {}).get("primitive_id")
+            return set(primitive_source_fields(primitive_id))
+        fields: set[str] = set()
+        for dependency_ref in feature.get("input_feature_refs", []):
+            dependency = self._catalog.get_feature(dependency_ref)
+            fields.update(self._feature_source_fields(
+                dependency, visiting | {feature_ref},
+            ))
+        return fields
+
     def _source(self, source_ref: str) -> dict[str, Any]:
         source_id, version = parse_versioned_ref(source_ref, "work.source_ref")
         source = self._repository.get_source(source_id, version)
         if source is None:
             raise UnknownReferenceError(f"unknown DataSource ref: {source_ref}")
         return source
+
+    def _l2_reader(self, source_ref: str, source: dict[str, Any]) -> OnboardingDataSourceReader:
+        if source.get("format") != "l2_onboarding_source_v1":
+            raise ArtifactValidationError(
+                "builtin.l2_primitives requires format l2_onboarding_source_v1"
+            )
+        source_id, version = parse_versioned_ref(source_ref, "work.source_ref")
+        key = (source_id, version)
+        reader = self._source_reader_cache.get(key)
+        if reader is None:
+            reader = OnboardingDataSourceReader(source)
+            self._source_reader_cache[key] = reader
+        return reader
 
     def _read_source_values(self, source: dict[str, Any], work: dict[str, Any]) -> pa.Table:
         if str(source.get("format", "")).lower() not in {"parquet", "parquet_v1"}:
@@ -979,16 +1249,21 @@ class ResearchExecutor:
 
     def _make_feature_result(self, *, context: dict[str, Any], work: dict[str, Any],
                              feature: dict[str, Any], result_ref: ArtifactRef,
+                             audit_ref: ArtifactRef | None,
                              fingerprint: str, input_result_refs: list[str], attempt: int,
                              stage_run_id: str, stage_name: str, stage_version: str,
                              source: dict[str, Any], n_total: int, n_valid: int,
                              invalid_reason_counts: dict[str, int], quality_flags: list[str],
-                             output: pa.Table) -> dict[str, Any]:
+                             output: pa.Table,
+                             source_evidence: dict[str, Any] | None = None,
+                             audit_schema_version: str | None = None,
+                             audit_columns: list[str] | None = None) -> dict[str, Any]:
         scope = dict(work["partition_scope"])
         time_min, time_max = self._time_bounds(output)
         result_seed = {
             "computation_fingerprint": fingerprint,
             "artifact_hash": result_ref.content_hash,
+            "audit_artifact_hash": None if audit_ref is None else audit_ref.content_hash,
             "producer_run_id": context["run_id"],
             "producer_work_key": work["work_key"],
             "attempt": attempt,
@@ -1005,6 +1280,24 @@ class ResearchExecutor:
             ],
             "row_count": n_total,
         }
+        descriptors = [descriptor]
+        if audit_ref is not None:
+            descriptors.append({
+                "artifact_role": (
+                    "window_audit"
+                    if audit_schema_version == BUSINESS_AUDIT_SCHEMA_VERSION
+                    else (
+                        "statistical_audit"
+                        if audit_schema_version == STATISTICAL_AUDIT_SCHEMA_VERSION
+                        else "primitive_audit"
+                    )
+                ),
+                "artifact_ref": audit_ref.to_dict(),
+                "hash": audit_ref.content_hash,
+                "schema": audit_ref.schema_version,
+                "columns": audit_columns or [],
+                "row_count": audit_ref.row_count,
+            })
         split_ref = {**context["request"]["split_ref"],
                      "split_id": context["plan"]["split_id"]}
         availability_mode = source.get("availability_mode", "research_only")
@@ -1038,7 +1331,7 @@ class ResearchExecutor:
             "producer_stage_version": stage_version,
             "producer_attempt": attempt,
             "computation_fingerprint": fingerprint,
-            "artifacts": [descriptor],
+            "artifacts": descriptors,
             "coverage": {
                 "processed_complete": True,
                 "processed_intervals": [dict(scope)],
@@ -1069,12 +1362,13 @@ class ResearchExecutor:
                 "sampling": feature.get("sampling", {}),
                 "time_min": time_min,
                 "time_max": time_max,
+                **({"source_evidence": source_evidence} if source_evidence is not None else {}),
             },
             "created_at": _now(),
         }
 
     def _make_receipt(self, context: dict[str, Any], work: dict[str, Any],
-                      result: dict[str, Any], result_ref: ArtifactRef, attempt: int,
+                      result: dict[str, Any], result_refs: list[ArtifactRef], attempt: int,
                       stage_run_id: str, final_root: Path) -> dict[str, Any]:
         attempt_id = f"{stage_run_id}:attempt:{attempt}"
         receipt_id = "receipt_" + hashlib.sha256(
@@ -1092,7 +1386,7 @@ class ResearchExecutor:
             "attempt_id": attempt_id,
             "computation_fingerprint": result["computation_fingerprint"],
             "result": result,
-            "artifact_refs": [result_ref.to_dict()],
+            "artifact_refs": [ref.to_dict() for ref in result_refs],
             "final_bundle_uri": final_root.as_uri(),
             "created_at": _now(),
         }

@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from functools import lru_cache
 from itertools import pairwise
 from pathlib import Path
@@ -253,6 +253,59 @@ def classify_event_time(
                 rule_id=str(rule["rule_id"]),
             )
     return None
+
+
+def session_segment_bounds(
+    instrument_id: str,
+    trade_date: date,
+    segment_id: str,
+    calendar_dates: list[date] | tuple[date, ...] | set[date],
+    rules: str | Path | SessionRules,
+) -> tuple[datetime, datetime] | None:
+    """Return the evidenced UTC half-open interval for one contract/session segment.
+
+    This is the scheduling counterpart to :func:`classify_event_time`: it returns
+    the full frozen session boundary even when the first observed quote arrives
+    later. A missing rule segment or a closed last-trading-day afternoon returns
+    ``None`` rather than inventing a time range.
+    """
+    if isinstance(rules, SessionRules):
+        session_rules = rules
+    else:
+        session_rules = load_session_rules(rules)
+    calendar = set(calendar_dates)
+    if trade_date not in calendar:
+        return None
+    product = next(
+        (prefix for prefix in ("TF", "TS", "TL", "T") if instrument_id.startswith(prefix)),
+        "",
+    )
+    rule = _product_rule(product, trade_date, session_rules)
+    if rule is None:
+        return None
+
+    bounds: tuple[time, time] | None = None
+    auction = rule.get("opening_auction")
+    if auction and segment_id == "opening_auction_submission":
+        bounds = (_parse_time(auction["start"]), _parse_time(auction["order_submission_end"]))
+    elif auction and segment_id == "opening_auction_matching":
+        bounds = (_parse_time(auction["matching_start"]), _parse_time(auction["end"]))
+    elif segment_id == "continuous_morning" and rule.get("morning_continuous"):
+        segment = rule["morning_continuous"]
+        bounds = (_parse_time(segment["start"]), _parse_time(segment["end"]))
+    elif segment_id == "continuous_afternoon" and rule.get("afternoon_continuous_regular_day"):
+        expiry = _contract_expiry_date(instrument_id, trade_date, calendar)
+        if rule.get("last_trading_day_afternoon") == "closed" and expiry == trade_date:
+            return None
+        segment = rule["afternoon_continuous_regular_day"]
+        bounds = (_parse_time(segment["start"]), _parse_time(segment["end"]))
+    if bounds is None or bounds[0] >= bounds[1]:
+        return None
+
+    local_zone = ZoneInfo(session_rules.timezone)
+    start = datetime.combine(trade_date, bounds[0], tzinfo=local_zone)
+    end = datetime.combine(trade_date, bounds[1], tzinfo=local_zone)
+    return start.astimezone(UTC), end.astimezone(UTC)
 
 
 def freeze_session_rules(path: str | Path) -> dict[str, Any]:

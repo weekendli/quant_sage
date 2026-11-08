@@ -86,3 +86,80 @@ python -m ruff check quantsage_discovery/stages/onboard.py tests/test_onboarding
 The full run and its archived source use run revision `134977…` / onboard-stage revision `ddb915…`. After publication, payload fingerprinting was corrected to include `product`; the current working tree is run revision `8730b89606a6f07b4845c05ede1bcc3eb345780c01fa1ca649d4ee5100bc71f1` / onboard-stage revision `807f3d1d19ed9bac55278f8f87982bff2931918fa908988629e89e4d162d8dcf`. The change passed a serialized regression that changes only product within a duplicate event group. It was not used to rerun production and does not replace or modify the frozen archive. The independent full-source baseline also compared product plus all 62 business fields and found no conflicting payload groups in this dataset. See [the revision scope note](CODE_REVISION_SCOPE.md).
 
 Step 03 and all later stages remain unimplemented and were not run. The source availability and product metadata limits above remain part of this dataset's research contract.
+
+## 02-A frozen source, metadata and gap adaptation — 2026-11-07
+
+**Status: COMPLETE for the available inputs.** The frozen 79-month onboarding entry is now registered as a versioned research `DataSource`. The user's real market metadata has not been provided, so no production tick/unit values were invented; the source remains usable for tick-independent research while tick-dependent work is explicitly blocked.
+
+### Implemented behavior
+
+- `quantsage adapt-onboarding-source` validates the published entry/outer manifest chain, all quote/quarantine content hashes, calendar uniqueness/order, session evidence, row reconciliation, and source schema before creating a new immutable source version.
+- `quantsage_discovery/research/onboarding_adapter.py` creates a bounded source index, 49,800 evidenced `[start,end)` session intervals, a descriptive research-only access manifest derived from the original unassigned split, a versioned `gap_policy_v1` manifest, and `gap_events_v1` Parquet evidence.
+- `OnboardingDataSourceReader` reads only an authorized contract/trade-date partition, verifies its hash, supports projected columns, applies no cross-session carry, resolves historical tick rules by the most specific matching contract/product rule, and reports unknown availability.
+- `market_metadata_v1` now supports optional explicit price/size/turnover units and optional contract-specific tick rules. A contract rule overrides a product rule on dates it covers; product rules cover the remaining dates. Nonpositive ticks, overlapping same-scope rules and uncovered source partitions are rejected. The human template and validation command are in [configs/templates](../../../configs/templates/README.md).
+- The onboarding producer now records volume and turnover reconciliation counts separately. For the already frozen report, a new read-only full-source pass derived and bound the same evidence without rewriting Step 02.
+
+### Real adapted source
+
+The selected accepted source is `cffex_treasury_l2_full79@2`.
+
+| Field | Value |
+|---|---|
+| Data snapshot | `snapshot_196d8ba3203cebdc50f94420a373638c4b0db6f98f4d7b2fe87b3a0220465fc2` |
+| Original split | `split_dac2cec9652419c9ca8b4c8955d89b718f8b53274be543b7a7d3a630036b9588f` |
+| Data content hash | `sha256:73acc246fc198e1a32f3184a445e075af347954cba5f98769e8322e51299a949` |
+| Instruments / accepted partitions | 103 / 16,636 |
+| Accepted / quarantined / input rows | 257,069,701 / 337,676 / 257,407,377 |
+| Session intervals | 49,800 |
+| Gap events | 354,319 = 337,676 quarantined records + 16,636 unknown source-interval starts + 7 whole-date source gaps |
+| Availability | `research_only`; `available_time` unknown |
+| Market metadata | not supplied; no `market_metadata_ref`; `spread_ticks` blocked |
+
+Artifacts are under `artifacts/step02/adapters/step02-02a-20261107-r3/cffex_treasury_l2-v2/`:
+
+| Artifact | SHA-256 |
+|---|---|
+| `source.json` | `4c6a877304bd55707c43df01510324894bc085f621867af8124063c84797963b` |
+| `data_source_manifest.json` | `aca12b769dfc19c491b9b5607e0ecf5694064c1107043b80c6a6f60eee036ca8` |
+| `source_index.json` | `72284219374655016e93e9f56878f4c580ce282273b0a700c82323ef74a4b499` |
+| `session_policy.json` | `e8e2cd8c22acd3a4d1c45bcf53d9e5d9eab6ce41690970f762d9c6d427a9483d` |
+| `gap_manifest.json` | `1f9f7105ab2ab0e807f55d40d0dc65487af6a360970e4c9295cf985c02cb8333` |
+| `gap_events.parquet` | `4165e12129f7c563c61358aa26e8485d8c76de30101fa6a47a14fb9b118c88ca` |
+| `increment_reconciliation.json` | `e48599fc1b40e349d42b88792d8638955f5b9799025f374bb0802b26b326220b` |
+| `access_policy.json` | `c6ddaab1c288b9ada844a1e72d2a3bf6b5c989393be47a138e92372b38a4c1b8` |
+| `quality_summary.json` | `6c9f2bef7a6157e50a865447078641e2e011a829b51c82eb081093abb408de4e` |
+| `research_only_split.json` | `7d22ac6d5efa35988932cc0b5cd23723c481794913774af4c06e34c670217fb3` |
+
+The read-only increment reconciliation scan verified all 79 frozen raw hashes and independently found 23,768 volume mismatches plus 23,768 turnover mismatches. Their exact sum is the frozen combined count 47,536; volume and turnover cumulative-reset counts are both zero. These remain warnings and were not used to alter, quarantine or null any accepted value.
+
+### Verification evidence
+
+The local owner registered both source versions into `artifacts/research/registry.duckdb`; version 2 is the selected complete gap-evidence version. Owner stop, restart, and RPC read-back succeeded. The actual one-partition reader command was:
+
+```bash
+/data/src/research/.venv/bin/python -m examples.onboarding_source \
+  --source artifacts/step02/adapters/step02-02a-20261107-r3/cffex_treasury_l2-v2/source.json \
+  --instrument T2603 --date 2026-01-05
+```
+
+It read 24,274 accepted rows using only published refs. Mid was `107.9225`, price-unit spread was `0.005`, the opening-auction/morning/afternoon ranges remained separate, `tick_size` was null and `spread_ticks` was `BLOCKED_MARKET_METADATA_MISSING`. The same partition reported three quarantined source observations and one explicit unknown continuity start; none were mixed back into accepted quotes.
+
+Targeted and affected regression command:
+
+```bash
+/data/src/research/.venv/bin/python -m pytest -q \
+  tests/test_onboarding_adapter.py tests/test_research_management.py \
+  tests/test_run_planner.py tests/test_onboarding_stage.py tests/test_onboarding_consumer.py
+/data/src/research/.venv/bin/ruff check quantsage_discovery tests examples
+```
+
+At the time of this increment record: 112 affected tests passed, the complete suite passed 247 tests, and full-project Ruff passed. The sandboxed first full-suite attempt reached 240 passes but could not bind the existing local owner socket; the same suite passed outside that socket restriction.
+
+### Limits and handoff
+
+- Real tick, multiplier and unit metadata must come from the user. Once supplied, validate it with `quantsage validate-market-metadata`, create the next DataSource version with `--metadata`, and register it. This must not rerun onboarding.
+- `available_time` remains unknown; no point-in-time cross-source causal claim is enabled.
+- The 223,963 accepted depth-invalid rows remain available with `DEPTH_BOOK_INVALID`; Step 03 owns per-metric masks and must not treat unknown depth as zero.
+- The two preliminary adapter runs remain audit history only. `r3`/v2 supersedes them because it adds explicit event-schema validation and separate reconciliation evidence; the underlying frozen source hash is unchanged.
+
+Next increment: **03-A, basic primitives with real source consumption**.

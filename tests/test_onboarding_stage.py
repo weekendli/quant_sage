@@ -94,7 +94,7 @@ def test_serialized_bootstrap_onboard_reconciles_and_publishes_entry(tmp_path: P
             counters = {
                 "09:29:00.000000": ("0.00", "0", "0.000", "0.000"),
                 "09:30:00.000000": ("10.00", "10", "100.000", "100.000"),
-                "10:00:00.000000": ("20.00", "5", "200.000", "50.000"),
+                "10:00:00.000000": ("20.00", "5", "200.000", "10.000"),
                 "10:01:00.000000": ("20.00", "0", "200.000", "0.000"),
                 "11:29:59.500000": ("15.00", "0", "150.000", "0.000"),
             }
@@ -159,7 +159,17 @@ def test_serialized_bootstrap_onboard_reconciles_and_publishes_entry(tmp_path: P
     assert sum(item["invalid_quote_rows"] for item in scopes) == 2
     assert sum(item["time_reorder_count"] for item in scopes) >= 1
     assert report["volume_turnover_increment_mismatch_rows"] > 0
+    assert report["volume_increment_mismatch_rows"] > 0
+    assert report["turnover_increment_mismatch_rows"] > 0
+    assert report["volume_turnover_increment_mismatch_rows"] == (
+        report["volume_increment_mismatch_rows"]
+        + report["turnover_increment_mismatch_rows"]
+    )
     assert report["cumulative_reset_rows"] > 0
+    assert report["cumulative_reset_rows"] >= max(
+        report["volume_cumulative_reset_rows"],
+        report["turnover_cumulative_reset_rows"],
+    )
     assert "DEPTH_BOOK_INVALID" not in report["quarantine_reason_counts"]
     assert report["quality_flag_counts"]["DEPTH_BOOK_INVALID"] == 4
     assert report["quality_flag_counts"]["END_OF_DAY_FIELDS_UNVERIFIED"] == 9

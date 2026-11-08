@@ -115,6 +115,39 @@ def build_parser() -> argparse.ArgumentParser:
     explain.add_argument("--artifact-id", required=True)
     _add_config_argument(explain, required=False)
     explain.add_argument("--registry")
+
+    adapt_source = subparsers.add_parser(
+        "adapt-onboarding-source",
+        help="map a frozen Step 02 onboarding entry to an immutable DataSource",
+    )
+    adapt_source.add_argument("--entry", required=True, type=Path)
+    adapt_source.add_argument("--entry-manifest", required=True, type=Path)
+    adapt_source.add_argument("--split-manifest", required=True, type=Path)
+    adapt_source.add_argument("--output", required=True, type=Path)
+    adapt_source.add_argument("--source-id", required=True)
+    adapt_source.add_argument("--version", required=True, type=int)
+    adapt_source.add_argument("--source-timezone", default="Asia/Shanghai")
+    adapt_source.add_argument("--metadata", type=Path)
+    adapt_source.add_argument("--actor-kind", choices=("human", "agent"), default="agent")
+    adapt_source.add_argument("--actor-id", default="quantsage-onboarding-adapter")
+    adapt_source.add_argument(
+        "--verify-data-hashes",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="rehash every frozen quote/quarantine artifact (default: enabled)",
+    )
+    adapt_source.add_argument(
+        "--derive-increment-reconciliation",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="separately recompute volume/turnover reconciliation from frozen raw files",
+    )
+
+    validate_metadata = subparsers.add_parser(
+        "validate-market-metadata",
+        help="validate a versioned market_metadata_v1 document",
+    )
+    validate_metadata.add_argument("--input", required=True, type=Path)
     add_research_parser(subparsers)
     return parser
 
@@ -263,12 +296,53 @@ def _inspect_registry(args: argparse.Namespace, registry: Registry) -> int:
     return 0 if results else 1
 
 
+def _adapt_onboarding_source(args: argparse.Namespace) -> int:
+    from .research.onboarding_adapter import adapt_onboarding_entry
+
+    adapted = adapt_onboarding_entry(
+        args.entry,
+        args.entry_manifest,
+        args.split_manifest,
+        args.output,
+        source_id=args.source_id,
+        version=args.version,
+        source_timezone=args.source_timezone,
+        metadata_path=args.metadata,
+        created_by={"kind": args.actor_kind, "id": args.actor_id},
+        verify_data_hashes=args.verify_data_hashes,
+        derive_increment_reconciliation=args.derive_increment_reconciliation,
+    )
+    _json(adapted.summary)
+    return 0
+
+
+def _validate_market_metadata(args: argparse.Namespace) -> int:
+    from .research.schemas import validate_market_metadata_document
+
+    try:
+        document = json.loads(args.input.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise WorkflowError(f"cannot read market metadata JSON: {exc}") from exc
+    normalized = validate_market_metadata_document(document)
+    _json({
+        "valid": True,
+        "metadata_id": normalized["metadata_id"],
+        "version": normalized["version"],
+        "rule_count": len(normalized["tick_rules"]),
+    })
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
         if args.command == "research":
             return handle_research(args)
+        if args.command == "adapt-onboarding-source":
+            return _adapt_onboarding_source(args)
+        if args.command == "validate-market-metadata":
+            return _validate_market_metadata(args)
         if args.command in {"validate", "plan"}:
             return _validate_or_plan(args, args.command == "plan")
         if args.command == "run":

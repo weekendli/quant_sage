@@ -1,0 +1,9 @@
+{
+  "REPORT.md": "43951ce6b0826e3285a07c8a77dd87f7bb3eb5288cdadc0663dfeccc5c126e2e",
+  "evidence.json": "3e38a875258f1e8a12a001876556399bc35f75adb054ffa46fd07b61f2263285",
+  "probe_semantics.py": "bb40cfd35f2e7e1de92872b761a21fdf13c6cf09fadbda90b850f013a6f0ed42",
+  "pytest.txt": "ac404ea67e62154c573957f2c711ee479ddd2d9cf5aa63d9218df8b9d1eb637a",
+  "real-abc.json": "da02305a26898fa39503e4679920f00d03dc38e6914ce8cc8afa6b3cc15c9c35",
+  "ruff.txt": "fb613be3ab908d87d11e09471502aa7987310c2686d578000dc9ed8c2f9309b2",
+  "semantic-probes.json": "0115d5d3cb4f55d0c8c1a5630a3f8acffede21bfd7900069452a5ca95227573b"
+}

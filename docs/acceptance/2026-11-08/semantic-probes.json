@@ -1,0 +1,50 @@
+{
+  "history": {
+    "passed": false,
+    "requirement": "authorized same-session history remains usable when output start changes",
+    "expected": [
+      0.3333333333333334,
+      0.2666666666666668
+    ],
+    "actual": [
+      null,
+      null
+    ],
+    "invalid_reasons": [
+      "HISTORY_INSUFFICIENT",
+      "HISTORY_INSUFFICIENT"
+    ]
+  },
+  "real_gap": {
+    "passed": false,
+    "requirement": "known source gaps affecting OBI invalidate overlapping business windows",
+    "source_ref": "cffex_treasury_l2_full79@2",
+    "source_content_hash": "sha256:73acc246fc198e1a32f3184a445e075af347954cba5f98769e8322e51299a949",
+    "gap_manifest_ref": {
+      "content_hash": "sha256:1f9f7105ab2ab0e807f55d40d0dc65487af6a360970e4c9295cf985c02cb8333",
+      "uri": "file:///data/src/quant_sage/artifacts/step02/adapters/step02-02a-20261107-r3/cffex_treasury_l2-v2/gap_manifest.json"
+    },
+    "primitive_rows": 7,
+    "relevant_gap_count": 2,
+    "non_null_windows_crossing_known_gaps": 1,
+    "examples": [
+      {
+        "event_time": "2026-06-12T01:34:11.800000+00:00",
+        "value": -0.7142857142857143,
+        "invalid_reason": null,
+        "gap_event_id": "767c1fecbf12259a834995654f3bb6753b04e8d5806f261a40824530a4c01592",
+        "gap_time": "2026-06-12T01:34:00.800000+00:00",
+        "gap_reason": [
+          "INVALID_L1_BOOK"
+        ],
+        "evidence_record_id": "5a17031a699f184f651d4eafcefdd65f58329739c48fd2eaa55b07164b5ad2f5"
+      }
+    ]
+  },
+  "catalog": {
+    "passed": false,
+    "requirement": "business factor names preserve the original d-space notation",
+    "expected": "obi__d0__h1s",
+    "actual": "obi__s0__h1s"
+  }
+}

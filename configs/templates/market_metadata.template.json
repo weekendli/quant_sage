@@ -6,6 +6,11 @@
     "id": "<填写提供者标识>"
   },
   "source": "<填写规则来源或说明>",
+  "units": {
+    "price_unit": "<价格单位>",
+    "size_unit": "<数量单位>",
+    "turnover_unit": "<成交额单位>"
+  },
   "tick_rules": [
     {
       "product": "T",

@@ -34,6 +34,8 @@ from .feature_schemas import (
     validate_provider,
     validate_template,
 )
+from .statistical_backends import SHAPE_MIN_SAMPLES, metric_backend_document
+from .statistical_windows import INPUT_VIEW_POLICY, validate_statistical_input
 
 _T = TypeVar("_T")
 
@@ -519,6 +521,7 @@ def _resolve_recipe(connection: duckdb.DuckDBPyConnection, feature_set: dict[str
         raise ResearchValidationError("provider does not support the registered template step")
 
     metric_docs: list[tuple[str, dict[str, Any]]] = []
+    metric_selection: dict[str, Any] = {}
     kind = template["kind"]
     if kind == "statistical":
         if ("metrics" in recipe) == ("metric_set_ref" in recipe):
@@ -529,6 +532,10 @@ def _resolve_recipe(connection: duckdb.DuckDBPyConnection, feature_set: dict[str
             raise ResearchValidationError("statistical recipe requires one input reference")
         if "metrics" in recipe:
             metric_refs = recipe["metrics"]
+            metric_selection = {
+                "mode": "explicit_metrics",
+                "label": "custom_subset",
+            }
         else:
             metric_set_id, metric_set_version = parse_feature_set_ref(
                 recipe["metric_set_ref"], "recipe.metric_set_ref"
@@ -542,17 +549,63 @@ def _resolve_recipe(connection: duckdb.DuckDBPyConnection, feature_set: dict[str
                 raise UnknownReferenceError(f"unknown metric set ref: {recipe['metric_set_ref']}",
                                             details={"ref": recipe["metric_set_ref"]})
             metric_refs = json.loads(metric_set["document_json"])["metrics"]
+            baseline_labels = {
+                "catch22_classic_22": "complete_catch22_baseline",
+                "catch22_plus_selected_tsfeatures_30": (
+                    "complete_catch22_plus_selected_tsfeatures"
+                ),
+            }
+            metric_set_id = recipe["metric_set_ref"].split("@", 1)[0]
+            metric_selection = {
+                "mode": "metric_set",
+                "metric_set_ref": recipe["metric_set_ref"],
+                "label": baseline_labels.get(metric_set_id, "custom_subset"),
+            }
+        metric_selection["metric_refs"] = list(metric_refs)
         for ref in metric_refs:
             metric_docs.append((ref, _load_resource(connection, "metrics", "metric_id", ref,
                                                     "metric_ref")))
     elif "metrics" in recipe or "metric_set_ref" in recipe:
         raise ResearchValidationError("metrics and metric_set_ref are only valid for step 05")
 
-    input_refs, input_hashes, dependency_reasons = _resolve_inputs(
-        connection, recipe.get("input"), resolve_item, feature_documents
+    input_refs, input_hashes, dependency_reasons, input_bindings = _resolve_inputs(
+        connection, recipe, resolve_item, feature_documents
     )
+    input_requirements = template.get("source_requirements", {})
+    expected_roles = input_requirements.get("input_roles")
+    if expected_roles is not None:
+        actual_roles = [binding["role"] for binding in input_bindings]
+        if set(actual_roles) != set(expected_roles) or len(actual_roles) != len(expected_roles):
+            raise ResearchValidationError(
+                f"recipe input roles must be exactly {expected_roles}"
+            )
+        expected_units = input_requirements.get("input_units", {})
+        for binding in input_bindings:
+            dependency = (
+                feature_documents[binding["feature_ref"]]
+                if binding["feature_ref"] in feature_documents
+                else _load_feature(connection, binding["feature_ref"])
+            )
+            expected_unit = expected_units.get(binding["role"])
+            if expected_unit is not None and dependency["unit"] != expected_unit:
+                raise ResearchValidationError(
+                    f"input {binding['role']} unit must be {expected_unit}"
+                )
     if kind == "statistical" and not input_refs:
         raise ResearchValidationError("statistical recipe must resolve one input Feature")
+    if (kind == "statistical"
+            and template.get("source_requirements", {}).get("input_view_policy")
+            == INPUT_VIEW_POLICY):
+        if len(input_refs) != 1:
+            raise ResearchValidationError(
+                "statistical recipe must resolve exactly one whitelisted input Feature"
+            )
+        dependency = (
+            feature_documents[input_refs[0]]
+            if input_refs[0] in feature_documents
+            else _load_feature(connection, input_refs[0])
+        )
+        validate_statistical_input(dependency, [ref for ref, _ in metric_docs])
 
     set_defaults = feature_set.get("defaults", {})
     time_policy = dict(template.get("time_policy", {}))
@@ -564,10 +617,18 @@ def _resolve_recipe(connection: duckdb.DuckDBPyConnection, feature_set: dict[str
         if field in time_policy:
             time_policy[field] = normalize_duration(time_policy[field], f"recipe.{field}")
     for field in ("max_endpoint_age", "max_quote_age", "max_feature_age"):
+        if field in recipe:
+            time_policy[field] = recipe[field]
         if field in time_policy:
             time_policy[field] = normalize_duration(time_policy[field], f"template.time_policy.{field}")
     if recipe["step"] == 4 and "lookback" not in time_policy:
         raise ResearchValidationError("step 04 recipe requires an explicit lookback")
+    if (recipe["step"] == 4
+            and template["source_requirements"].get("requires_max_endpoint_age")
+            and "max_endpoint_age" not in time_policy):
+        raise ResearchValidationError(
+            "step 04 endpoint recipe requires an explicit max_endpoint_age"
+        )
     if recipe["step"] == 5 and "profile_window" not in time_policy:
         raise ResearchValidationError("step 05 recipe requires an explicit profile_window")
 
@@ -579,12 +640,24 @@ def _resolve_recipe(connection: duckdb.DuckDBPyConnection, feature_set: dict[str
             raise ResearchValidationError("step 05 recipe requires sampling interval and evaluation_stride")
         if "axis" not in sampling:
             raise ResearchValidationError("step 05 sampling requires an explicit axis/time_basis")
+        if (template["source_requirements"].get("requires_max_feature_age")
+                and "max_feature_age" not in sampling):
+            raise ResearchValidationError(
+                "step 05 recipe requires sampling.max_feature_age"
+            )
 
     validity = _merge_objects(template.get("validity", {}), set_defaults.get("validity", {}),
                               recipe.get("validity", {}))
     validity = _normalize_validity(validity, "recipe.validity")
     if recipe["step"] == 5 and "min_samples" not in validity:
         raise ResearchValidationError("step 05 recipe requires validity.min_samples")
+    if (
+        any(ref.split("@", 1)[0].startswith(("c22.", "tsf.")) for ref, _ in metric_docs)
+        and validity["min_samples"] < SHAPE_MIN_SAMPLES
+    ):
+        raise ResearchValidationError(
+            f"catch22/tsfeatures metrics require validity.min_samples >= {SHAPE_MIN_SAMPLES}"
+        )
 
     feature_outputs = []
     metrics: list[tuple[str | None, dict[str, Any] | None]] = metric_docs or [(None, None)]
@@ -605,6 +678,12 @@ def _resolve_recipe(connection: duckdb.DuckDBPyConnection, feature_set: dict[str
             metric_provider = None
         parameters = normalize_parameters({**defaults, **recipe["parameters"]}, combined_schema,
                                           "recipe.parameters")
+        backend = (
+            metric_backend_document(metric_ref_value)
+            if metric_ref_value is not None
+            and metric_ref_value.split("@", 1)[0].startswith(("c22.", "tsf."))
+            else None
+        )
         if metric_ref_value is not None:
             parameters = {**parameters, "metric_ref": metric_ref_value}
 
@@ -639,11 +718,13 @@ def _resolve_recipe(connection: duckdb.DuckDBPyConnection, feature_set: dict[str
             "template_formula_ref": template["formula_ref"],
             "implementation": implementation,
             "parameters": parameters,
+            "input_bindings": input_bindings,
             "input_definition_hashes": input_hashes,
             "source_requirements": template["source_requirements"],
             "time_policy": time_policy,
             "sampling": sampling,
             "validity": validity,
+            **({"backend": backend} if backend is not None else {}),
             "output_schema": output_schema,
             "unit": unit,
             "status": status,
@@ -667,6 +748,7 @@ def _resolve_recipe(connection: duckdb.DuckDBPyConnection, feature_set: dict[str
             "implementation": implementation,
             "parameters": parameters,
             "input_feature_refs": input_refs,
+            "input_bindings": input_bindings,
             "source_requirements": template["source_requirements"],
             "time_policy": time_policy,
             "sampling": sampling,
@@ -680,19 +762,43 @@ def _resolve_recipe(connection: duckdb.DuckDBPyConnection, feature_set: dict[str
             feature["reason"] = reason
         if metric_ref_value is not None:
             feature["metric_ref"] = metric_ref_value
+        if backend is not None:
+            feature["backend"] = backend
         feature_ref_value = f"{feature_id}@1"
         feature_documents[feature_ref_value] = feature
-        feature_outputs.append(_resolved_output(feature, metric_ref_value))
+        resolved_output = _resolved_output(feature, metric_ref_value)
+        if metric_selection:
+            resolved_output["metric_selection"] = metric_selection
+        feature_outputs.append(resolved_output)
     return feature_outputs
 
 
-def _resolve_inputs(connection: duckdb.DuckDBPyConnection, input_ref: dict[str, Any] | None,
+def _resolve_inputs(connection: duckdb.DuckDBPyConnection, recipe: dict[str, Any],
                     resolve_item: Callable[[str], list[dict[str, Any]]],
-                    feature_documents: dict[str, dict[str, Any]]) -> tuple[list[str], list[str], list[str]]:
-    if input_ref is None:
-        return [], [], []
+                    feature_documents: dict[str, dict[str, Any]]
+                    ) -> tuple[list[str], list[str], list[str], list[dict[str, str]]]:
+    if "input" in recipe:
+        bindings = {"input": recipe["input"]}
+    elif "inputs" in recipe:
+        bindings = recipe["inputs"]
+    else:
+        return [], [], [], []
+    refs: list[str] = []
+    normalized_bindings = []
+    for role, input_ref in bindings.items():
+        refs.extend(_resolve_one_input(input_ref, resolve_item))
+        normalized_bindings.append({"role": role, "feature_ref": refs[-1]})
+    docs = [feature_documents[ref] if ref in feature_documents else _load_feature(connection, ref)
+            for ref in refs]
+    reason = [f"input {feature['feature_id']} is {feature['status']}"
+              for feature in docs if feature["status"] != "ready"]
+    return refs, [feature["definition_hash"] for feature in docs], reason, normalized_bindings
+
+
+def _resolve_one_input(input_ref: dict[str, Any],
+                       resolve_item: Callable[[str], list[dict[str, Any]]]) -> list[str]:
     if "input_feature_ref" in input_ref:
-        refs = [input_ref["input_feature_ref"]]
+        return [input_ref["input_feature_ref"]]
     else:
         candidates = resolve_item(input_ref["item_id"])
         output_id = input_ref.get("output_id")
@@ -708,12 +814,7 @@ def _resolve_inputs(connection: duckdb.DuckDBPyConnection, input_ref: dict[str, 
                 raise ResearchValidationError(
                     f"unknown output_id {output_id!r} for item {input_ref['item_id']}"
                 )
-        refs = [selected["feature_ref"]]
-    docs = [feature_documents[ref] if ref in feature_documents else _load_feature(connection, ref)
-            for ref in refs]
-    reason = [f"input {feature['feature_id']} is {feature['status']}"
-              for feature in docs if feature["status"] != "ready"]
-    return refs, [feature["definition_hash"] for feature in docs], reason
+        return [selected["feature_ref"]]
 
 
 def _resolved_output(feature: dict[str, Any], metric: str | None = None) -> dict[str, Any]:

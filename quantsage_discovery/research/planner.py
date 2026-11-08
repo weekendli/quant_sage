@@ -343,6 +343,17 @@ def _partition_index(source: dict[str, Any]) -> dict[tuple[str, str], list[dict[
     return index
 
 
+def _source_identity_hash(source: dict[str, Any]) -> str:
+    """Bind data content and every metadata/policy ref into the Run identity."""
+    fields = (
+        "schema_version", "source_id", "version", "manifest_ref", "content_hash",
+        "schema_ref", "format", "instruments", "coverage", "time_rules", "calendar_ref",
+        "session_policy_ref", "market_metadata_ref", "gap_manifest_ref", "quality_ref",
+        "availability_mode", "access_policy_ref",
+    )
+    return _hash({field: source.get(field) for field in fields})
+
+
 def _scope_segments(scope: dict[str, Any], sources: list[dict[str, Any]],
                     metadata_by_ref: dict[str, dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     start = _utc_timestamp(scope["start"], "request.scope.start")
@@ -505,9 +516,33 @@ def _needs_tick_size(feature: dict[str, Any]) -> bool:
     requirements = feature.get("source_requirements", {})
     if not isinstance(requirements, dict):
         return False
-    return (requirements.get("tick_size") is True
-            or "tick_size" in requirements.get("required_metadata", [])
-            or "tick_size" in requirements.get("metadata", []))
+    if requirements.get("tick_size") is True:
+        return True
+    if "tick_size" in requirements.get("required_metadata", []):
+        return True
+    if "tick_size" in requirements.get("metadata", []):
+        return True
+    if requirements.get("tick_size_for_nonzero_space") is True:
+        return feature.get("parameters", {}).get("space") != "d0"
+    return False
+
+
+def _source_requirements_block(feature: dict[str, Any], source: dict[str, Any]) -> str | None:
+    requirements = feature.get("source_requirements", {})
+    if not isinstance(requirements, dict):
+        return None
+    expected_format = requirements.get("source_format")
+    if expected_format is not None and source.get("format") != expected_format:
+        return "SOURCE_FORMAT_UNSUPPORTED"
+    required_columns = requirements.get("required_columns")
+    if not isinstance(required_columns, list) or not required_columns:
+        return None
+    schema = _read_json_ref(source["schema_ref"], "source.schema_ref")
+    available = set(schema.get("fields", {}))
+    missing = sorted(set(required_columns) - available)
+    if missing:
+        return "SOURCE_FIELD_MISSING:" + ",".join(missing)
+    return None
 
 
 def _tick_metadata_block(feature: dict[str, Any], source: dict[str, Any],
@@ -523,13 +558,18 @@ def _tick_metadata_block(feature: dict[str, Any], source: dict[str, Any],
     if product is None:
         return "TICK_SIZE_RULE_MISSING"
     day = date.fromisoformat(trade_date)
-    for rule in metadata_doc.get("tick_rules", []):
-        if rule.get("product") != product:
-            continue
-        valid_from = date.fromisoformat(rule["valid_from"])
-        valid_to = None if rule["valid_to"] is None else date.fromisoformat(rule["valid_to"])
-        if valid_from <= day and (valid_to is None or day < valid_to):
-            return None
+    product_rules = [
+        rule for rule in metadata_doc.get("tick_rules", [])
+        if rule.get("product") == product
+    ]
+    for selector in (instrument, None):
+        for rule in product_rules:
+            if rule.get("instrument_id") != selector:
+                continue
+            valid_from = date.fromisoformat(rule["valid_from"])
+            valid_to = None if rule["valid_to"] is None else date.fromisoformat(rule["valid_to"])
+            if valid_from <= day and (valid_to is None or day < valid_to):
+                return None
     return "TICK_SIZE_RULE_MISSING"
 
 
@@ -906,8 +946,12 @@ class RunPlanner:
                         node["blocked_reason"] = "DEPENDENCY_NOT_SELECTED"
                     else:
                         source = source_by_ref[segment["source_ref"]]
-                        node["blocked_reason"] = _tick_metadata_block(
-                            feature, source, segment["instrument_id"], segment["trade_date"]
+                        node["blocked_reason"] = (
+                            _source_requirements_block(feature, source)
+                            or _tick_metadata_block(
+                                feature, source, segment["instrument_id"],
+                                segment["trade_date"],
+                            )
                         )
                 node["processed_interval"] = interval_key
                 if node["blocked_reason"] not in {
@@ -952,6 +996,7 @@ class RunPlanner:
                 node["read_scope"] = {
                     "start": _time_text(read_start), "end": _time_text(node["output_end"]),
                     "session_id": segment["session_id"],
+                    "session_start": _time_text(segment["session_start"]),
                 }
                 if not _contained_by_ranges(study_ranges, segment["instrument_id"],
                                             read_start, node["output_end"], segment["session_id"]):
@@ -1056,7 +1101,9 @@ class RunPlanner:
                         node["blocked_reason"] = "HISTORY_OUTSIDE_SPLIT_SCOPE"
 
         code_revision, environment_ref, environment = _runtime_snapshot()
-        source_hashes = {ref: source_by_ref[ref]["content_hash"] for ref in sorted(source_by_ref)}
+        source_hashes = {
+            ref: _source_identity_hash(source_by_ref[ref]) for ref in sorted(source_by_ref)
+        }
         request_hash = _hash(request)
         study_semantics = {key: value for key, value in study.items()
                            if key not in {"created_at", "updated_at", "created_by", "updated_by",
@@ -1103,6 +1150,7 @@ class RunPlanner:
             read_scope = node.get("read_scope", {
                 "start": _time_text(read_start), "end": _time_text(node["output_end"]),
                 "session_id": segment["session_id"],
+                "session_start": _time_text(segment["session_start"]),
             })
             raw_dependency_scope = node.get("raw_dependency_scope", read_scope)
             partition_scope = {

@@ -1,0 +1,3 @@
+.                                                                        [100%]
+1 passed in 0.06s
+AUDIT_RESULT={"case": "wrong_crossing_ties", "observations": {"median_ties": 0, "target_calls": 1}, "pytest_exit_code": 0, "selected_tests": ["tests/test_statistical_backends.py::test_crossing_ties_are_counted_on_the_low_side"]}

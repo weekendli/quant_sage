@@ -7,7 +7,12 @@ name = "quantsage-discovery"
 version = "0.1.0"
 description = "A reproducible workflow engine for empirical discovery"
 requires-python = ">=3.11"
-dependencies = ["PyYAML>=6.0,<7", "duckdb>=1.1,<2", "pyarrow>=18,<27"]
+dependencies = [
+  "PyYAML>=6.0,<7",
+  "duckdb>=1.1,<2",
+  "pyarrow>=18,<27",
+  "pycatch22==0.4.5",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6"]

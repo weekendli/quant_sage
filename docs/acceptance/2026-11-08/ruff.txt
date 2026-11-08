@@ -1,0 +1,38 @@
+RUF046 [*] Value being cast to `int` is already an integer
+  --> docs/references/inspect_l2_sample.py:31:37
+   |
+29 |         repeated = sizes[sizes > 1]
+30 |         return {
+31 |             "duplicate_key_groups": int(len(repeated)),
+   |                                     ^^^^^^^^^^^^^^^^^^
+32 |             "excess_rows": int((repeated - 1).sum()),
+33 |             "max_multiplicity": int(sizes.max()),
+   |
+help: Remove unnecessary `int` call
+   |
+30 |         return {
+   -             "duplicate_key_groups": int(len(repeated)),
+31 +             "duplicate_key_groups": len(repeated),
+32 |             "excess_rows": int((repeated - 1).sum()),
+   |
+
+RUF046 [*] Value being cast to `int` is already an integer
+   --> docs/references/inspect_l2_sample.py:116:35
+    |
+114 |             "group_keys": groups, "time_reorder_count": int((gaps < 0).sum()),
+115 |             "adjacent_same_time_count": int((gaps == 0).sum()),
+116 |             "positive_gap_count": int(len(positive_gaps)),
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^^
+117 |             "positive_gap_seconds_quantiles": {
+118 |                 str(q): float(positive_gaps.quantile(q)) for q in [0.5, 0.9, 0.99]
+    |
+help: Remove unnecessary `int` call
+    |
+115 |             "adjacent_same_time_count": int((gaps == 0).sum()),
+    -             "positive_gap_count": int(len(positive_gaps)),
+116 +             "positive_gap_count": len(positive_gaps),
+117 |             "positive_gap_seconds_quantiles": {
+    |
+
+Found 2 errors.
+[*] 2 fixable with the `--fix` option.

@@ -1,0 +1,698 @@
+{
+  "comparison_bc": {
+    "added_dates": {
+      "left": [],
+      "right": []
+    },
+    "added_definitions": {
+      "left": [
+        {
+          "definition_hash": "sha256:22f963ab142071c7cae3f99f013fcb9ebc9fcd443576bf2ec7f58de65cd3d798",
+          "feature_ref": "feature_22f963ab142071c7cae3f99f@1",
+          "source_ref": "acceptance_cffex_full79@1",
+          "split_id": "split_b5997676e0f567043a6fa8043c5b0de41a2d7c9eef1f50084775a7bfb038d71b"
+        },
+        {
+          "definition_hash": "sha256:574112cf9e6b903ec93b3926fa4d5af1362f464b1c003482bb2409c64c1305b4",
+          "feature_ref": "feature_574112cf9e6b903ec93b3926@1",
+          "source_ref": "acceptance_cffex_full79@1",
+          "split_id": "split_b5997676e0f567043a6fa8043c5b0de41a2d7c9eef1f50084775a7bfb038d71b"
+        }
+      ],
+      "right": [
+        {
+          "definition_hash": "sha256:9fcd52b0a338f6190b55d61cfb32f881aba4bb4d0a90d06d2280a00fcd372b6b",
+          "feature_ref": "feature_9fcd52b0a338f6190b55d61c@1",
+          "source_ref": "acceptance_cffex_full79@1",
+          "split_id": "split_b5997676e0f567043a6fa8043c5b0de41a2d7c9eef1f50084775a7bfb038d71b"
+        }
+      ]
+    },
+    "checked_at": "2026-11-08T01:47:00.471314+00:00",
+    "common_dates": [
+      {
+        "exchange": "CFFEX",
+        "instrument_id": "T2603",
+        "session_id": "CN_STOCK:2026-01-05:continuous_afternoon",
+        "source_ref": "acceptance_cffex_full79@1",
+        "trade_date": "2026-01-05"
+      },
+      {
+        "exchange": "CFFEX",
+        "instrument_id": "T2603",
+        "session_id": "CN_STOCK:2026-01-05:continuous_morning",
+        "source_ref": "acceptance_cffex_full79@1",
+        "trade_date": "2026-01-05"
+      }
+    ],
+    "common_definitions": [
+      {
+        "definition_hash": "sha256:04b4251e890a47f6baaecc4f1105ca8b753a49036ad7365cae95254dbbf3ec02",
+        "feature_ref": "feature_04b4251e890a47f6baaecc4f@1",
+        "source_ref": "acceptance_cffex_full79@1",
+        "split_id": "split_b5997676e0f567043a6fa8043c5b0de41a2d7c9eef1f50084775a7bfb038d71b"
+      },
+      {
+        "definition_hash": "sha256:290c200df2c3a99486330eb59d76c5df1c27de5abe9b9d863c690adcf6ef5a2e",
+        "feature_ref": "feature_290c200df2c3a99486330eb5@1",
+        "source_ref": "acceptance_cffex_full79@1",
+        "split_id": "split_b5997676e0f567043a6fa8043c5b0de41a2d7c9eef1f50084775a7bfb038d71b"
+      },
+      {
+        "definition_hash": "sha256:2e596b054cf3454f1f33931ae0b279ee59c4e899f9d386f40b62ab6fe4566890",
+        "feature_ref": "feature_2e596b054cf3454f1f33931a@1",
+        "source_ref": "acceptance_cffex_full79@1",
+        "split_id": "split_b5997676e0f567043a6fa8043c5b0de41a2d7c9eef1f50084775a7bfb038d71b"
+      },
+      {
+        "definition_hash": "sha256:d78a18c30d1356f0d71a1c7697177b6abac39fd550c7b359d00f2ed1154eab9b",
+        "feature_ref": "feature_d78a18c30d1356f0d71a1c76@1",
+        "source_ref": "acceptance_cffex_full79@1",
+        "split_id": "split_b5997676e0f567043a6fa8043c5b0de41a2d7c9eef1f50084775a7bfb038d71b"
+      }
+    ],
+    "health_verification": "verified",
+    "historical_result_refs": {
+      "left": [
+        "result_50bc3f4863b3f55f7d36124c26ffe00f",
+        "result_3c9fc60606b7108c78addc8a9a2653d6",
+        "result_7f8c528d2720d415989e255712049fb0",
+        "result_6a17c2c55e5cb8a3a059d21dd33c5678",
+        "result_e785f61b2b37bb242192d87eb01d2cc9",
+        "result_d79d51eb6c3c32e6950a2b8e46016827",
+        "result_deb1bb02f7f1e0c99036342a1a42f94e",
+        "result_40ee41a38f6f7a7bbd6d9f8406cb9f7a",
+        "result_103bbd39ea01d3d64bce2a36668793e8",
+        "result_7e4f721559be6f593e64c3eb0184a650"
+      ],
+      "right": [
+        "result_3c9fc60606b7108c78addc8a9a2653d6",
+        "result_7f8c528d2720d415989e255712049fb0",
+        "result_d79d51eb6c3c32e6950a2b8e46016827",
+        "result_e785f61b2b37bb242192d87eb01d2cc9",
+        "result_321cc934dafb69ac677027defa658c7f",
+        "result_deb1bb02f7f1e0c99036342a1a42f94e",
+        "result_90a6c9de6449fef004e71c45aef3a003",
+        "result_40ee41a38f6f7a7bbd6d9f8406cb9f7a",
+        "result_103bbd39ea01d3d64bce2a36668793e8",
+        "result_7e4f721559be6f593e64c3eb0184a650"
+      ]
+    },
+    "left_run_id": "run_768e68ee902549889daad8d32e1e4f97",
+    "quality_differences": [
+      {
+        "date": {
+          "exchange": "CFFEX",
+          "instrument_id": "T2603",
+          "session_id": "CN_STOCK:2026-01-05:continuous_afternoon",
+          "source_ref": "acceptance_cffex_full79@1",
+          "trade_date": "2026-01-05"
+        },
+        "definition": {
+          "definition_hash": "sha256:04b4251e890a47f6baaecc4f1105ca8b753a49036ad7365cae95254dbbf3ec02",
+          "feature_ref": "feature_04b4251e890a47f6baaecc4f@1",
+          "source_ref": "acceptance_cffex_full79@1",
+          "split_id": "split_b5997676e0f567043a6fa8043c5b0de41a2d7c9eef1f50084775a7bfb038d71b"
+        },
+        "delta": {
+          "na_points": 0,
+          "observed_points": 0,
+          "valid_points": 0
+        },
+        "left": {
+          "na_points": 59,
+          "observed_points": 12018,
+          "valid_points": 11959
+        },
+        "right": {
+          "na_points": 59,
+          "observed_points": 12018,
+          "valid_points": 11959
+        },
+        "scope": {
+          "end": "2026-01-05T07:15:00.000000+00:00",
+          "exchange": "CFFEX",
+          "instrument_id": "T2603",
+          "session_id": "CN_STOCK:2026-01-05:continuous_afternoon",
+          "start": "2026-01-05T05:00:00.000000+00:00",
+          "trade_date": "2026-01-05"
+        }
+      },
+      {
+        "date": {
+          "exchange": "CFFEX",
+          "instrument_id": "T2603",
+          "session_id": "CN_STOCK:2026-01-05:continuous_afternoon",
+          "source_ref": "acceptance_cffex_full79@1",
+          "trade_date": "2026-01-05"
+        },
+        "definition": {
+          "definition_hash": "sha256:d78a18c30d1356f0d71a1c7697177b6abac39fd550c7b359d00f2ed1154eab9b",
+          "feature_ref": "feature_d78a18c30d1356f0d71a1c76@1",
+          "source_ref": "acceptance_cffex_full79@1",
+          "split_id": "split_b5997676e0f567043a6fa8043c5b0de41a2d7c9eef1f50084775a7bfb038d71b"
+        },
+        "delta": {
+          "na_points": 0,
+          "observed_points": 0,
+          "valid_points": 0
+        },
+        "left": {
+          "na_points": 983,
+          "observed_points": 1608,
+          "valid_points": 625
+        },
+        "right": {
+          "na_points": 983,
+          "observed_points": 1608,
+          "valid_points": 625
+        },
+        "scope": {
+          "end": "2026-01-05T07:15:00.000000+00:00",
+          "exchange": "CFFEX",
+          "instrument_id": "T2603",
+          "session_id": "CN_STOCK:2026-01-05:continuous_afternoon",
+          "start": "2026-01-05T05:00:00.000000+00:00",
+          "trade_date": "2026-01-05"
+        }
+      },
+      {
+        "date": {
+          "exchange": "CFFEX",
+          "instrument_id": "T2603",
+          "session_id": "CN_STOCK:2026-01-05:continuous_afternoon",
+          "source_ref": "acceptance_cffex_full79@1",
+          "trade_date": "2026-01-05"
+        },
+        "definition": {
+          "definition_hash": "sha256:2e596b054cf3454f1f33931ae0b279ee59c4e899f9d386f40b62ab6fe4566890",
+          "feature_ref": "feature_2e596b054cf3454f1f33931a@1",
+          "source_ref": "acceptance_cffex_full79@1",
+          "split_id": "split_b5997676e0f567043a6fa8043c5b0de41a2d7c9eef1f50084775a7bfb038d71b"
+        },
+        "delta": {
+          "na_points": 0,
+          "observed_points": 0,
+          "valid_points": 0
+        },
+        "left": {
+          "na_points": 105,
+          "observed_points": 130,
+          "valid_points": 25
+        },
+        "right": {
+          "na_points": 105,
+          "observed_points": 130,
+          "valid_points": 25
+        },
+        "scope": {
+          "end": "2026-01-05T07:15:00.000000+00:00",
+          "exchange": "CFFEX",
+          "instrument_id": "T2603",
+          "session_id": "CN_STOCK:2026-01-05:continuous_afternoon",
+          "start": "2026-01-05T05:00:00.000000+00:00",
+          "trade_date": "2026-01-05"
+        }
+      },
+      {
+        "date": {
+          "exchange": "CFFEX",
+          "instrument_id": "T2603",
+          "session_id": "CN_STOCK:2026-01-05:continuous_afternoon",
+          "source_ref": "acceptance_cffex_full79@1",
+          "trade_date": "2026-01-05"
+        },
+        "definition": {
+          "definition_hash": "sha256:290c200df2c3a99486330eb59d76c5df1c27de5abe9b9d863c690adcf6ef5a2e",
+          "feature_ref": "feature_290c200df2c3a99486330eb5@1",
+          "source_ref": "acceptance_cffex_full79@1",
+          "split_id": "split_b5997676e0f567043a6fa8043c5b0de41a2d7c9eef1f50084775a7bfb038d71b"
+        },
+        "delta": {
+          "na_points": 0,
+          "observed_points": 0,
+          "valid_points": 0
+        },
+        "left": {
+          "na_points": 113,
+          "observed_points": 12018,
+          "valid_points": 11905
+        },
+        "right": {
+          "na_points": 113,
+          "observed_points": 12018,
+          "valid_points": 11905
+        },
+        "scope": {
+          "end": "2026-01-05T07:15:00.000000+00:00",
+          "exchange": "CFFEX",
+          "instrument_id": "T2603",
+          "session_id": "CN_STOCK:2026-01-05:continuous_afternoon",
+          "start": "2026-01-05T05:00:00.000000+00:00",
+          "trade_date": "2026-01-05"
+        }
+      },
+      {
+        "date": {
+          "exchange": "CFFEX",
+          "instrument_id": "T2603",
+          "session_id": "CN_STOCK:2026-01-05:continuous_morning",
+          "source_ref": "acceptance_cffex_full79@1",
+          "trade_date": "2026-01-05"
+        },
+        "definition": {
+          "definition_hash": "sha256:290c200df2c3a99486330eb59d76c5df1c27de5abe9b9d863c690adcf6ef5a2e",
+          "feature_ref": "feature_290c200df2c3a99486330eb5@1",
+          "source_ref": "acceptance_cffex_full79@1",
+          "split_id": "split_b5997676e0f567043a6fa8043c5b0de41a2d7c9eef1f50084775a7bfb038d71b"
+        },
+        "delta": {
+          "na_points": 0,
+          "observed_points": 0,
+          "valid_points": 0
+        },
+        "left": {
+          "na_points": 119,
+          "observed_points": 12255,
+          "valid_points": 12136
+        },
+        "right": {
+          "na_points": 119,
+          "observed_points": 12255,
+          "valid_points": 12136
+        },
+        "scope": {
+          "end": "2026-01-05T03:30:00.000000+00:00",
+          "exchange": "CFFEX",
+          "instrument_id": "T2603",
+          "session_id": "CN_STOCK:2026-01-05:continuous_morning",
+          "start": "2026-01-05T01:30:00.000000+00:00",
+          "trade_date": "2026-01-05"
+        }
+      },
+      {
+        "date": {
+          "exchange": "CFFEX",
+          "instrument_id": "T2603",
+          "session_id": "CN_STOCK:2026-01-05:continuous_morning",
+          "source_ref": "acceptance_cffex_full79@1",
+          "trade_date": "2026-01-05"
+        },
+        "definition": {
+          "definition_hash": "sha256:04b4251e890a47f6baaecc4f1105ca8b753a49036ad7365cae95254dbbf3ec02",
+          "feature_ref": "feature_04b4251e890a47f6baaecc4f@1",
+          "source_ref": "acceptance_cffex_full79@1",
+          "split_id": "split_b5997676e0f567043a6fa8043c5b0de41a2d7c9eef1f50084775a7bfb038d71b"
+        },
+        "delta": {
+          "na_points": 0,
+          "observed_points": 0,
+          "valid_points": 0
+        },
+        "left": {
+          "na_points": 60,
+          "observed_points": 12255,
+          "valid_points": 12195
+        },
+        "right": {
+          "na_points": 60,
+          "observed_points": 12255,
+          "valid_points": 12195
+        },
+        "scope": {
+          "end": "2026-01-05T03:30:00.000000+00:00",
+          "exchange": "CFFEX",
+          "instrument_id": "T2603",
+          "session_id": "CN_STOCK:2026-01-05:continuous_morning",
+          "start": "2026-01-05T01:30:00.000000+00:00",
+          "trade_date": "2026-01-05"
+        }
+      },
+      {
+        "date": {
+          "exchange": "CFFEX",
+          "instrument_id": "T2603",
+          "session_id": "CN_STOCK:2026-01-05:continuous_morning",
+          "source_ref": "acceptance_cffex_full79@1",
+          "trade_date": "2026-01-05"
+        },
+        "definition": {
+          "definition_hash": "sha256:2e596b054cf3454f1f33931ae0b279ee59c4e899f9d386f40b62ab6fe4566890",
+          "feature_ref": "feature_2e596b054cf3454f1f33931a@1",
+          "source_ref": "acceptance_cffex_full79@1",
+          "split_id": "split_b5997676e0f567043a6fa8043c5b0de41a2d7c9eef1f50084775a7bfb038d71b"
+        },
+        "delta": {
+          "na_points": 0,
+          "observed_points": 0,
+          "valid_points": 0
+        },
+        "left": {
+          "na_points": 90,
+          "observed_points": 115,
+          "valid_points": 25
+        },
+        "right": {
+          "na_points": 90,
+          "observed_points": 115,
+          "valid_points": 25
+        },
+        "scope": {
+          "end": "2026-01-05T03:30:00.000000+00:00",
+          "exchange": "CFFEX",
+          "instrument_id": "T2603",
+          "session_id": "CN_STOCK:2026-01-05:continuous_morning",
+          "start": "2026-01-05T01:30:00.000000+00:00",
+          "trade_date": "2026-01-05"
+        }
+      },
+      {
+        "date": {
+          "exchange": "CFFEX",
+          "instrument_id": "T2603",
+          "session_id": "CN_STOCK:2026-01-05:continuous_morning",
+          "source_ref": "acceptance_cffex_full79@1",
+          "trade_date": "2026-01-05"
+        },
+        "definition": {
+          "definition_hash": "sha256:d78a18c30d1356f0d71a1c7697177b6abac39fd550c7b359d00f2ed1154eab9b",
+          "feature_ref": "feature_d78a18c30d1356f0d71a1c76@1",
+          "source_ref": "acceptance_cffex_full79@1",
+          "split_id": "split_b5997676e0f567043a6fa8043c5b0de41a2d7c9eef1f50084775a7bfb038d71b"
+        },
+        "delta": {
+          "na_points": 0,
+          "observed_points": 0,
+          "valid_points": 0
+        },
+        "left": {
+          "na_points": 653,
+          "observed_points": 1428,
+          "valid_points": 775
+        },
+        "right": {
+          "na_points": 653,
+          "observed_points": 1428,
+          "valid_points": 775
+        },
+        "scope": {
+          "end": "2026-01-05T03:30:00.000000+00:00",
+          "exchange": "CFFEX",
+          "instrument_id": "T2603",
+          "session_id": "CN_STOCK:2026-01-05:continuous_morning",
+          "start": "2026-01-05T01:30:00.000000+00:00",
+          "trade_date": "2026-01-05"
+        }
+      }
+    ],
+    "result_refs": {
+      "left": [
+        "result_103bbd39ea01d3d64bce2a36668793e8",
+        "result_3c9fc60606b7108c78addc8a9a2653d6",
+        "result_40ee41a38f6f7a7bbd6d9f8406cb9f7a",
+        "result_50bc3f4863b3f55f7d36124c26ffe00f",
+        "result_6a17c2c55e5cb8a3a059d21dd33c5678",
+        "result_7e4f721559be6f593e64c3eb0184a650",
+        "result_7f8c528d2720d415989e255712049fb0",
+        "result_d79d51eb6c3c32e6950a2b8e46016827",
+        "result_deb1bb02f7f1e0c99036342a1a42f94e",
+        "result_e785f61b2b37bb242192d87eb01d2cc9"
+      ],
+      "right": [
+        "result_103bbd39ea01d3d64bce2a36668793e8",
+        "result_321cc934dafb69ac677027defa658c7f",
+        "result_3c9fc60606b7108c78addc8a9a2653d6",
+        "result_40ee41a38f6f7a7bbd6d9f8406cb9f7a",
+        "result_7e4f721559be6f593e64c3eb0184a650",
+        "result_7f8c528d2720d415989e255712049fb0",
+        "result_90a6c9de6449fef004e71c45aef3a003",
+        "result_d79d51eb6c3c32e6950a2b8e46016827",
+        "result_deb1bb02f7f1e0c99036342a1a42f94e",
+        "result_e785f61b2b37bb242192d87eb01d2cc9"
+      ]
+    },
+    "right_run_id": "run_d177b9b9067d42538fc0867f8785bafa",
+    "schema_version": "run_comparison_v1",
+    "scope": {
+      "common": {
+        "end": "2026-01-05T07:15:00.000000+00:00",
+        "instruments": [
+          "T2603"
+        ],
+        "session_filter": [
+          "CN_STOCK:2026-01-05:continuous_afternoon",
+          "CN_STOCK:2026-01-05:continuous_morning"
+        ],
+        "start": "2026-01-05T01:30:00.000000+00:00"
+      },
+      "left": {
+        "end": "2026-01-05T07:15:00.000000+00:00",
+        "instruments": [
+          "T2603"
+        ],
+        "session_filter": [
+          "CN_STOCK:2026-01-05:continuous_afternoon",
+          "CN_STOCK:2026-01-05:continuous_morning"
+        ],
+        "start": "2026-01-05T01:30:00.000000+00:00"
+      },
+      "right": {
+        "end": "2026-01-05T07:15:00.000000+00:00",
+        "instruments": [
+          "T2603"
+        ],
+        "session_filter": [
+          "CN_STOCK:2026-01-05:continuous_afternoon",
+          "CN_STOCK:2026-01-05:continuous_morning"
+        ],
+        "start": "2026-01-05T01:30:00.000000+00:00"
+      }
+    },
+    "unmatched_left": [
+      {
+        "definition_hash": "sha256:22f963ab142071c7cae3f99f013fcb9ebc9fcd443576bf2ec7f58de65cd3d798",
+        "feature_ref": "feature_22f963ab142071c7cae3f99f@1",
+        "source_ref": "acceptance_cffex_full79@1",
+        "split_id": "split_b5997676e0f567043a6fa8043c5b0de41a2d7c9eef1f50084775a7bfb038d71b"
+      },
+      {
+        "definition_hash": "sha256:574112cf9e6b903ec93b3926fa4d5af1362f464b1c003482bb2409c64c1305b4",
+        "feature_ref": "feature_574112cf9e6b903ec93b3926@1",
+        "source_ref": "acceptance_cffex_full79@1",
+        "split_id": "split_b5997676e0f567043a6fa8043c5b0de41a2d7c9eef1f50084775a7bfb038d71b"
+      }
+    ],
+    "unmatched_right": [
+      {
+        "definition_hash": "sha256:9fcd52b0a338f6190b55d61cfb32f881aba4bb4d0a90d06d2280a00fcd372b6b",
+        "feature_ref": "feature_9fcd52b0a338f6190b55d61c@1",
+        "source_ref": "acceptance_cffex_full79@1",
+        "split_id": "split_b5997676e0f567043a6fa8043c5b0de41a2d7c9eef1f50084775a7bfb038d71b"
+      }
+    ]
+  },
+  "coverage_summary": {
+    "available_results": 4,
+    "needs_repair": 0,
+    "observed_points": 26053,
+    "processed_intervals": 4,
+    "reason_counts": {
+      "NOT_SELECTED": 2,
+      "UNCLASSIFIED_NA": 922
+    },
+    "requested_intervals": 6,
+    "source_gaps": 0,
+    "target_count": 6,
+    "unprocessed_intervals": 2,
+    "valid_points": 25131
+  },
+  "empty_plan": {
+    "status": "NO_WORK",
+    "work_units": 0
+  },
+  "feature_sets": {
+    "added_feature_ref": "feature_9fcd52b0a338f6190b55d61c@1",
+    "v1": "real_abc_candidates@1",
+    "v2": "real_abc_candidates@2"
+  },
+  "result_counts": {
+    "A": 6,
+    "B": 10,
+    "C": 10,
+    "pending": 0
+  },
+  "review": {
+    "actor": {
+      "id": "step13-e2e",
+      "kind": "agent"
+    },
+    "created_at": "2026-11-08T01:46:36.907896+00:00",
+    "created_by": {
+      "id": "step13-e2e",
+      "kind": "agent"
+    },
+    "decision": "investigate",
+    "limitations": "Research-only availability; tick metadata is absent; no causal claim.",
+    "next_action": {
+      "operation": "extend_scope",
+      "session": "CN_STOCK:2026-01-05:continuous_afternoon"
+    },
+    "observations": "Verified serialized ready business and statistical results, retained NA reasons and exposed unselected candidates in coverage.",
+    "rationale": "Proceed to the afternoon session without changing the frozen set.",
+    "result_refs": [
+      "result_40ee41a38f6f7a7bbd6d9f8406cb9f7a",
+      "result_103bbd39ea01d3d64bce2a36668793e8"
+    ],
+    "review_id": "acceptance-20261108-review-a",
+    "run_refs": [
+      "run_531c180d72b348a895f996fdec73e7fb"
+    ],
+    "schema_version": "review_v1",
+    "scope": {
+      "end": "2026-01-05T03:30:00.000000+00:00",
+      "instruments": [
+        "T2603"
+      ],
+      "session_filter": [
+        "CN_STOCK:2026-01-05:continuous_morning"
+      ],
+      "start": "2026-01-05T01:30:00.000000+00:00"
+    },
+    "study_id": "real_abc_study",
+    "target_item_refs": [
+      "real_abc_candidates@1/obi_30s",
+      "real_abc_candidates@1/wobi_1m"
+    ]
+  },
+  "runs": {
+    "A": {
+      "plan_summary": {
+        "blocked": 0,
+        "cache_candidates": 0,
+        "dependency_only": 2,
+        "diagnostics": 0,
+        "effective_budget": {
+          "max_concurrent_jobs": 2,
+          "max_partitions": 20,
+          "max_work_units": 100
+        },
+        "partitions": 1,
+        "ready": 6,
+        "requested": 4,
+        "requested_budget": {
+          "max_concurrent_jobs": 2,
+          "max_partitions": 20,
+          "max_work_units": 100
+        },
+        "source_gaps": 0,
+        "work_units": 6
+      },
+      "result_refs": [
+        "result_b2dd8bdb9ac0d04ebf089e6195aef8c0",
+        "result_fc7e3a6ed3f4df02b12b12c47a145df2",
+        "result_deb1bb02f7f1e0c99036342a1a42f94e",
+        "result_40ee41a38f6f7a7bbd6d9f8406cb9f7a",
+        "result_103bbd39ea01d3d64bce2a36668793e8",
+        "result_7e4f721559be6f593e64c3eb0184a650"
+      ],
+      "run_id": "run_531c180d72b348a895f996fdec73e7fb",
+      "status": "COMPLETE"
+    },
+    "B": {
+      "plan_summary": {
+        "blocked": 0,
+        "cache_candidates": 6,
+        "dependency_only": 4,
+        "diagnostics": 0,
+        "effective_budget": {
+          "max_concurrent_jobs": 2,
+          "max_partitions": 20,
+          "max_work_units": 100
+        },
+        "partitions": 1,
+        "ready": 12,
+        "requested": 8,
+        "requested_budget": {
+          "max_concurrent_jobs": 2,
+          "max_partitions": 20,
+          "max_work_units": 100
+        },
+        "source_gaps": 0,
+        "work_units": 12
+      },
+      "result_refs": [
+        "result_50bc3f4863b3f55f7d36124c26ffe00f",
+        "result_3c9fc60606b7108c78addc8a9a2653d6",
+        "result_7f8c528d2720d415989e255712049fb0",
+        "result_d79d51eb6c3c32e6950a2b8e46016827",
+        "result_6a17c2c55e5cb8a3a059d21dd33c5678",
+        "result_e785f61b2b37bb242192d87eb01d2cc9",
+        "result_deb1bb02f7f1e0c99036342a1a42f94e",
+        "result_40ee41a38f6f7a7bbd6d9f8406cb9f7a",
+        "result_103bbd39ea01d3d64bce2a36668793e8",
+        "result_7e4f721559be6f593e64c3eb0184a650"
+      ],
+      "run_id": "run_768e68ee902549889daad8d32e1e4f97",
+      "state_counts": {
+        "CACHED": 4,
+        "SKIPPED": 2,
+        "SUCCEEDED": 6
+      },
+      "status": "COMPLETE"
+    },
+    "C": {
+      "plan_summary": {
+        "blocked": 0,
+        "cache_candidates": 12,
+        "dependency_only": 4,
+        "diagnostics": 0,
+        "effective_budget": {
+          "max_concurrent_jobs": 2,
+          "max_partitions": 20,
+          "max_work_units": 100
+        },
+        "partitions": 1,
+        "ready": 14,
+        "requested": 10,
+        "requested_budget": {
+          "max_concurrent_jobs": 2,
+          "max_partitions": 20,
+          "max_work_units": 100
+        },
+        "source_gaps": 0,
+        "work_units": 14
+      },
+      "result_refs": [
+        "result_3c9fc60606b7108c78addc8a9a2653d6",
+        "result_7f8c528d2720d415989e255712049fb0",
+        "result_d79d51eb6c3c32e6950a2b8e46016827",
+        "result_321cc934dafb69ac677027defa658c7f",
+        "result_90a6c9de6449fef004e71c45aef3a003",
+        "result_e785f61b2b37bb242192d87eb01d2cc9",
+        "result_deb1bb02f7f1e0c99036342a1a42f94e",
+        "result_40ee41a38f6f7a7bbd6d9f8406cb9f7a",
+        "result_103bbd39ea01d3d64bce2a36668793e8",
+        "result_7e4f721559be6f593e64c3eb0184a650"
+      ],
+      "run_id": "run_d177b9b9067d42538fc0867f8785bafa",
+      "state_counts": {
+        "CACHED": 8,
+        "SKIPPED": 4,
+        "SUCCEEDED": 2
+      },
+      "status": "COMPLETE"
+    },
+    "pending": {
+      "blocked_reason": "PENDING_SEMANTICS",
+      "result_refs": [],
+      "run_id": "run_4af1c013422c4069ab649d35714709f1",
+      "status": "BLOCKED"
+    }
+  },
+  "schema_version": "real_e2e_abc_report_v1",
+  "source_ref": "acceptance_cffex_full79@1",
+  "study": {
+    "revision_after_c": 2,
+    "study_id": "real_abc_study"
+  }
+}

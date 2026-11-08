@@ -1,0 +1,18 @@
+{
+  "test-audit/baseline.txt": "42f93e75ccece659fb4cc814a3444bc39b62249406663e366fcdd383d86905c0",
+  "test-audit/baseline.xml": "92f649294844fccd8313cc0a54fe3fd8b54baf983121021a50bbff4b46fccddb",
+  "test-audit/baseline_business.txt": "0b892e3b5b9e6045cafdf069bb4daffeeae5d6471c52c179ca1871874bfef0df",
+  "test-audit/baseline_statistics.txt": "d4661940784513193fd28c1de2a4a0426725175a6d6725d0a1d7ccfac88c5b29",
+  "test-audit/duplicate_catch22_names.txt": "c13901c779938eaf74718b8c973aebfcc6bbb806e3545adaee7dd3820994f4fe",
+  "test-audit/inventory.json": "4b243d6f2f68dbf773141c36c3a520e1a1b82734e5bebbdae5a57588250063d6",
+  "test-audit/metadata_ignored.txt": "ace6b0d7564f5423c2ba3a6ea9aae49e83d9d52cb4f9b2f8b0f0e85739d19ca0",
+  "test-audit/mid_shape_freeze.txt": "4d4f1833bdbc89179e279005dbfd1534cfb1b2119d3dbe0a12823a626d2665ce",
+  "test-audit/missing_f11.txt": "0ef1bb9998fe2fae3a5975a5f80a0cc90032bfd9cdee4a445227e191e0110a37",
+  "test-audit/numerical_suite.txt": "60083d108a2d4903b71e5955e5417bc90bcb8950ca03d51d3d6f85e8ac9d117b",
+  "test-audit/results.json": "d97ca79f3989c9e2384584502310f2865e143b2ad782c31612a632b79103bd73",
+  "test-audit/std_ddof.txt": "ef6670ad06b926e8eb15facdf0709ece9c98a899a989953629014f96fde92a16",
+  "test-audit/wrong_crossing_ties.txt": "bbebd454930a2947a3210a8a2dd92d08696e5b7ab81797215a98c91a43b52f30",
+  "test-audit/wrong_f12_finite.txt": "57cba3fe7e157d81e426ad4e34b62caf36e7e61a33bbaab09bdada55ea04901a",
+  "TEST_REQUIREMENTS_AUDIT.md": "8e2f72a4b6e2e3cc8a16983db1b6cf2f3f93b5253424888dcc0acc3a63a1331b",
+  "audit_test_strength.py": "88a13e6c42b3dc1b576fdee449e588ea44ea840a946d59731add0cf3ccee01a6"
+}
