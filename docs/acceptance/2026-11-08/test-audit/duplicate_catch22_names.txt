@@ -1,0 +1,3 @@
+.                                                                        [100%]
+1 passed in 0.05s
+AUDIT_RESULT={"case": "duplicate_catch22_names", "observations": {"target_calls": 0, "unique_names": 1}, "pytest_exit_code": 0, "selected_tests": ["tests/test_statistical_backends.py::test_catch22_catalog_is_the_exact_locked_22_long_names"]}

@@ -19,7 +19,7 @@ A synthetic no-op DAG producing small test artifacts; no market data needed.
 These are additional requirements beyond previously verified Step 01 behavior; test with synthetic catalogs/workers before connecting future domain stages.
 
 - [ ] The IMPLEMENT.md YAML example resolves to exactly 3 requested business outputs and 4 requested statistical outputs, with no 432-pack or source×metric×window cross product.
-- [ ] Omitted/empty selections produce NO_WORK, never all; primitive/statistical source refs, duplicate aliases, illegal dimensions, unknown fields/metrics and dependency cycles receive deterministic validation diagnostics.
+- [ ] Current Study/FeatureSet Run contract: omitted `selected_item_ids` selects the whole frozen set, while an explicit empty array produces `NO_WORK` with zero work units. The legacy `research_batch_v1` entry keeps its own empty-targets behavior and is not evidence for the Run selection contract. Primitive/statistical source refs, duplicate aliases, illegal dimensions, unknown fields/metrics and dependency cycles receive deterministic validation diagnostics.
 - [ ] A metric_set expands only for its selected source/scope into versioned members; explicit metrics produce a labeled subset; ambiguous metrics+metric_set or list-valued tuple coordinates are rejected.
 - [ ] Dependencies are resolved before execution; shared computations run once, dependency-only nodes and unselected registered inventory are distinguishable, and no unselected full-grid outputs execute.
 - [ ] A persisted plan shows PENDING before dispatch; a rejected plan retains diagnostics. Pending formula semantics cannot silently receive numerical defaults.

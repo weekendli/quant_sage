@@ -55,3 +55,15 @@ Commands:
 Limits: tick-dependent F01/F06/F11/F12 and all d1+ variants remain unavailable without user metadata; F07/F08 horizon aggregation stays pending; only the selected ready subset has real numerical results.
 
 Next increment: **05-A sampling / complete statistical windows / base descriptions**.
+
+## 04-A remediation: gap propagation, history bounds and canonical names — 2026-11-08
+
+**Status: COMPLETE for the remediated ready subset. F07/F08 aggregation remains pending.**
+
+- Published `quantsage_business_windows@2.0.0` / `business_windows_v2` with `business_window_audit_v2`.
+- Known source gaps are matched by affected field, exact contract/trade date/session and frozen boundary semantics. Affected business windows publish NA with `KNOWN_SOURCE_GAP`, event/evidence lineage and gap manifest hash; normal/no-update, stale, formula-unavailable and warning-only states stay distinct.
+- Output scope now only filters publication. True session start, authorized history and required L/W are explicit; F02/F09/F10/F11 common-time results no longer depend on output start. Rolling sums use window-local summation to avoid cross-range floating cancellation.
+- The 432-item catalog uses canonical `d0/d1/d2/d3/d5` names; v1 `s-space` names have a separate one-to-one historical alias map and are not emitted by the new catalog.
+- Real F1/F2 evidence: wide Run `run_635ace3d11df4da0aad6e276e8dccb01`, narrow `run_60eb1d5c9d2a46248cec398514485bfa`, and statistical downstream `run_d3fd495cf0ba42f7931e9e771621499d`. Full suite: 344 passed; targeted: 144 passed; Ruff passed.
+
+See [remediation verification](../../acceptance/2026-11-08/REMEDIATION_VERIFICATION.md).

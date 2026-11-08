@@ -1,0 +1,3 @@
+.                                                                        [100%]
+1 passed in 3.63s
+AUDIT_RESULT={"case": "mid_shape_freeze", "observations": {"mid_shape_accepted": true, "target_calls": 0}, "pytest_exit_code": 0, "selected_tests": ["tests/test_statistical_windows.py::test_whitelist_rejects_unsupported_view_unit_and_metric"]}

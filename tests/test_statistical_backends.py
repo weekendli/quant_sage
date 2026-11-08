@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import subprocess
+from itertools import pairwise
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +18,7 @@ from quantsage_discovery.research.service import ResearchService
 from quantsage_discovery.research.statistical_backends import (
     CATCH22_NAMES,
     CATCH22_VERSION,
+    R_VERSION,
     TSFEATURES_METRICS,
     TSFEATURES_VERSION,
     BackendUnavailableError,
@@ -30,6 +34,40 @@ from quantsage_discovery.research.statistical_windows import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "statistical_backends_v1"
+CATCH22_EXPECTED = (
+    "DN_HistogramMode_5",
+    "DN_HistogramMode_10",
+    "CO_f1ecac",
+    "CO_FirstMin_ac",
+    "CO_HistogramAMI_even_2_5",
+    "CO_trev_1_num",
+    "MD_hrv_classic_pnn40",
+    "SB_BinaryStats_mean_longstretch1",
+    "SB_TransitionMatrix_3ac_sumdiagcov",
+    "PD_PeriodicityWang_th0_01",
+    "CO_Embed2_Dist_tau_d_expfit_meandiff",
+    "IN_AutoMutualInfoStats_40_gaussian_fmmi",
+    "FC_LocalSimple_mean1_tauresrat",
+    "DN_OutlierInclude_p_001_mdrmd",
+    "DN_OutlierInclude_n_001_mdrmd",
+    "SP_Summaries_welch_rect_area_5_1",
+    "SB_BinaryStats_diff_longstretch0",
+    "SB_MotifThree_quantile_hh",
+    "SC_FluctAnal_2_rsrangefit_50_1_logi_prop_r1",
+    "SC_FluctAnal_2_dfa_50_1_2_logi_prop_r1",
+    "SP_Summaries_welch_rect_centroid",
+    "FC_LocalSimple_mean3_stderr",
+)
+TSFEATURES_EXPECTED = (
+    "tsf.x_acf1",
+    "tsf.x_acf10",
+    "tsf.x_pacf5",
+    "tsf.arch_r2_l12",
+    "tsf.spectral_entropy",
+    "tsf.stability_w60",
+    "tsf.lumpiness_w60",
+    "tsf.crossing_points",
+)
 
 
 def _goldens() -> tuple[dict, dict]:
@@ -49,11 +87,12 @@ def _requires_r() -> None:
 def test_catch22_catalog_is_the_exact_locked_22_long_names():
     import pycatch22
 
-    assert len(CATCH22_NAMES) == 22
+    assert CATCH22_NAMES == CATCH22_EXPECTED
+    assert len(set(CATCH22_NAMES)) == 22
     assert CATCH22_VERSION == "0.4.5"
     assert all(callable(getattr(pycatch22, name, None)) for name in CATCH22_NAMES)
     assert TSFEATURES_VERSION == "1.1.1"
-    assert len(TSFEATURES_METRICS) == 8
+    assert tuple(TSFEATURES_METRICS) == TSFEATURES_EXPECTED
 
 
 def test_catch22_selection_invokes_only_the_requested_function(monkeypatch):
@@ -81,15 +120,44 @@ def test_catch22_goldens_match_locked_backend():
     for metric_id in (f"c22.{name}" for name in CATCH22_NAMES):
         expected = golden["catch22"][metric_id]
         for fixture_id, expected_result in zip(fixture_ids, expected, strict=True):
+            import pycatch22
+
             value, reason = run_catch22_metric(metric_id, inputs["fixtures"][fixture_id])
             if expected_result["value"] is None:
                 assert value is None
                 assert reason == expected_result["reason"]
             else:
                 assert reason is None
-                assert value == pytest.approx(
-                    expected_result["value"], abs=1e-12, rel=1e-12,
+                if metric_id in golden["tolerances"]["exact_integer_metrics"]:
+                    assert value == expected_result["value"]
+                else:
+                    assert value == pytest.approx(
+                        expected_result["value"], abs=1e-12, rel=1e-12,
+                    )
+                official = float(
+                    getattr(pycatch22, metric_id.split(".", 1)[1])(
+                        inputs["fixtures"][fixture_id],
+                    )
                 )
+                assert value == pytest.approx(official, abs=1e-12, rel=1e-12)
+
+
+def test_golden_fixture_hashes_order_and_backend_lock_are_self_consistent():
+    inputs, golden = _goldens()
+    canonical = json.dumps(
+        inputs, sort_keys=True, separators=(",", ":"), allow_nan=False,
+    ) + "\n"
+    assert "sha256:" + hashlib.sha256(canonical.encode()).hexdigest() == \
+        golden["fixture_inputs_sha256"]
+    assert golden["fixture_inputs_order"] == inputs["fixture_order"]
+    assert set(inputs["fixture_order"]) == set(inputs["fixtures"])
+    assert golden["backend_lock"]["catch22"]["version"] == CATCH22_VERSION
+    assert golden["backend_lock"]["catch22"]["source_revision"] == "v0.4.5"
+    assert golden["backend_lock"]["tsfeatures"]["version"] == TSFEATURES_VERSION
+    assert (FIXTURES / "python_backend.lock").read_text(encoding="utf-8").splitlines() == [
+        "numpy==2.4.6",
+        "pycatch22==0.4.5",
+    ]
 
 
 def test_fixed_r_tsfeatures_goldens_match_locked_backend():
@@ -108,9 +176,12 @@ def test_fixed_r_tsfeatures_goldens_match_locked_backend():
                 assert reason == expected["reason"], (metric_id, fixture_id)
             else:
                 assert reason is None, (metric_id, fixture_id)
-                assert value == pytest.approx(
-                    expected["value"], abs=1e-12, rel=1e-12,
-                ), (metric_id, fixture_id)
+                if metric_id in golden["tolerances"]["exact_integer_metrics"]:
+                    assert value == expected["value"], (metric_id, fixture_id)
+                else:
+                    assert value == pytest.approx(
+                        expected["value"], abs=1e-12, rel=1e-12,
+                    ), (metric_id, fixture_id)
 
 
 def test_arch_r2_is_the_regression_r_squared_not_nr_squared():
@@ -133,10 +204,29 @@ def test_arch_r2_is_the_regression_r_squared_not_nr_squared():
 
 def test_crossing_ties_are_counted_on_the_low_side():
     _requires_r()
-    values = [float(index % 2) for index in range(300)]
-    value, reason = run_tsfeature_metrics("tsf.crossing_points", [values])[0]
+    values = [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 2.0, 2.0, 2.0]
+    raw_value = _raw_tsfeature_reference("tsf.crossing_points", values)
+    assert raw_value["status"] == "OK"
+    assert raw_value["value"] == 1.0
+    assert sum(value == sorted(values)[len(values) // 2] for value in values) == 3
+
+    alternating = [float(index % 2) for index in range(300)]
+    value, reason = run_tsfeature_metrics("tsf.crossing_points", [alternating])[0]
     assert reason is None
     assert value == 299
+
+
+def test_crossing_ties_production_window_has_real_median_ties():
+    _requires_r()
+    group = [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 2.0, 2.0, 2.0]
+    values = (group * 29)[:256]
+    median = sorted(values)[len(values) // 2]
+    assert values.count(median) > 0
+    expected_flags = [value <= median for value in values]
+    expected = sum(left != right for left, right in pairwise(expected_flags))
+    value, reason = run_tsfeature_metrics("tsf.crossing_points", [values])[0]
+    assert reason is None
+    assert value == expected
 
 
 def test_stability_and_lumpiness_are_standardised_block_statistics():
@@ -220,6 +310,27 @@ def _golden_value(golden: dict, metric_id: str, fixture_id: str) -> float:
     fixture_ids = golden["fixture_inputs_order"]
     index = fixture_ids.index(fixture_id)
     return golden["tsfeatures"][metric_id][index]["value"]
+
+
+def _raw_tsfeature_reference(metric_id: str, values: list[float]) -> dict:
+    request = json.dumps(
+        {"metric_id": metric_id, "windows": [values]},
+        separators=(",", ":"),
+    )
+    backend = Path(__file__).parents[1] / "scripts" / "tsfeatures_backend.R"
+    completed = subprocess.run(
+        [str(rscript_path()), "--vanilla", str(backend)],
+        input=request,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=180,
+    )
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert R_VERSION in payload["r_version"]
+    assert payload["tsfeatures_version"] == "1.1.1"
+    return payload["results"][0]
 
 
 def _freeze_profile(

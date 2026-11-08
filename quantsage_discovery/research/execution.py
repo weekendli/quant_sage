@@ -53,11 +53,13 @@ from .errors import (
     UnknownReferenceError,
 )
 from .execution_view import active_linked_result
+from .gap_policy import GAP_POLICY_VERSION
 from .l2_primitives import (
     L2_PRIMITIVE_AUDIT_SCHEMA,
     L2_PRIMITIVE_AUDIT_SCHEMA_VERSION,
     L2_PRIMITIVE_AUDIT_TYPE,
     compute_l2_primitive,
+    primitive_source_fields,
     validate_l2_primitive_audit_parquet,
 )
 from .onboarding_adapter import OnboardingDataSourceReader
@@ -78,6 +80,7 @@ from .statistical_windows import (
     STATISTICAL_AUDIT_TYPE,
     compute_statistical_window,
     validate_statistical_audit_parquet,
+    validate_statistical_input,
 )
 
 _SAFE_PATH_PART = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
@@ -299,7 +302,7 @@ class ResearchExecutor:
                 ),
             })
         identity = {
-            "schema_version": "feature_computation_identity_v1",
+            "schema_version": "feature_computation_identity_v2",
             "feature_ref": work["feature_ref"],
             "definition_hash": work["definition_hash"],
             "source_ref": work["source_ref"],
@@ -311,6 +314,8 @@ class ResearchExecutor:
             "partition_scope": work["partition_scope"],
             "required_history": work["required_history"],
             "read_scope": work.get("read_scope"),
+            "gap_policy_version": GAP_POLICY_VERSION,
+            "gap_manifest_ref": self._source(work["source_ref"]).get("gap_manifest_ref"),
             "input_result_refs": dependency_identity,
             "implementation": feature.get("implementation", {}),
             "runtime": {
@@ -717,8 +722,14 @@ class ResearchExecutor:
             }
             input_tables.append(self._filter_feature_table(table, dependency_scope))
             if index < len(bindings):
+                audit_table_for_input = None
+                for audit_role, audit_ref in refs.items():
+                    if audit_role in {"window_audit", "statistical_audit", "primitive_audit"}:
+                        audit_table_for_input = pq.read_table(artifact_path(audit_ref.uri))
+                        break
                 input_tables_by_role[bindings[index]["role"]] = {
                     "table": input_tables[-1],
+                    "audit": audit_table_for_input,
                     "result": result,
                 }
 
@@ -728,6 +739,13 @@ class ResearchExecutor:
         l2_provider = provider_key == "builtin.l2_primitives"
         business_provider = provider_key == "builtin.business_windows"
         statistical_provider = provider_key == "builtin.statistical_windows"
+        window_context = None
+        if business_provider or statistical_provider:
+            window_context = self._window_gap_context(
+                source=source,
+                work=work,
+                input_tables_by_role=input_tables_by_role,
+            )
         if l2_provider or business_provider or statistical_provider:
             if l2_provider and input_tables:
                 raise ArtifactValidationError(
@@ -824,12 +842,15 @@ class ResearchExecutor:
             elif business_provider or statistical_provider:
                 if statistical_provider:
                     input_feature = self._catalog.get_feature(expected_input_refs[0])
+                    validate_statistical_input(input_feature, [feature["metric_ref"]])
                     business_output = compute_statistical_window(
                         feature,
                         input_tables_by_role.get("input"),
                         work["partition_scope"],
                         work.get("read_scope") or {},
                         input_feature,
+                        input_audit=input_tables_by_role.get("input", {}).get("audit"),
+                        gap_context=window_context,
                     )
                     audit_type = STATISTICAL_AUDIT_TYPE
                     audit_schema_version = STATISTICAL_AUDIT_SCHEMA_VERSION
@@ -837,6 +858,7 @@ class ResearchExecutor:
                 else:
                     business_output = compute_business_window(
                         feature, input_tables_by_role, work["partition_scope"],
+                        context=window_context,
                     )
                     audit_type = BUSINESS_AUDIT_TYPE
                     audit_schema_version = BUSINESS_AUDIT_SCHEMA_VERSION
@@ -1023,6 +1045,71 @@ class ResearchExecutor:
             "processed_scope": "complete",
             "invalid_reason_counts": quality.get("invalid_reason_counts", {}),
         }
+
+    def _window_gap_context(
+        self,
+        *,
+        source: dict[str, Any],
+        work: dict[str, Any],
+        input_tables_by_role: dict[str, dict[str, Any]],
+    ) -> dict[str, Any]:
+        read_scope = work.get("read_scope") or {}
+        session_start = read_scope.get("session_start")
+        authorized_start = read_scope.get("start")
+        if session_start is None or authorized_start is None:
+            raise ArtifactValidationError(
+                "window execution requires planner read_scope.start and session_start"
+            )
+        dependency_fields: dict[str, set[str]] = {}
+        warning_flags: dict[str, list[str]] = {}
+        for role, input_data in input_tables_by_role.items():
+            result = input_data["result"]
+            input_feature = self._catalog.get_feature(result["feature_ref"])
+            dependency_fields[role] = sorted(
+                self._feature_source_fields(input_feature, frozenset()),
+            )
+            source_evidence = (
+                result.get("time_metadata", {}).get("source_evidence", {})
+            )
+            warning_flags[role] = sorted(set(
+                source_evidence.get("warning_flags", [])
+            ))
+        events: list[dict[str, Any]] = []
+        if source.get("format") == "l2_onboarding_source_v1":
+            partition = work["partition_scope"]
+            reader = self._l2_reader(work["source_ref"], source)
+            events = reader.gap_events(
+                instrument_id=partition["instrument_id"],
+                trade_date=partition["trade_date"],
+                session_id=partition["session_id"],
+            ).to_pylist()
+        return {
+            "session_start": session_start,
+            "authorized_start": authorized_start,
+            "dependency_fields": dependency_fields,
+            "gap_events": events,
+            "gap_manifest_ref": source.get("gap_manifest_ref"),
+            "warning_flags": warning_flags,
+        }
+
+    def _feature_source_fields(
+        self,
+        feature: dict[str, Any],
+        visiting: frozenset[str],
+    ) -> set[str]:
+        feature_ref = f"{feature['feature_id']}@{feature['version']}"
+        if feature_ref in visiting:
+            raise WorkflowError("cyclic Feature dependencies in source-field resolution")
+        if feature["step"] == 3:
+            primitive_id = feature.get("source_requirements", {}).get("primitive_id")
+            return set(primitive_source_fields(primitive_id))
+        fields: set[str] = set()
+        for dependency_ref in feature.get("input_feature_refs", []):
+            dependency = self._catalog.get_feature(dependency_ref)
+            fields.update(self._feature_source_fields(
+                dependency, visiting | {feature_ref},
+            ))
+        return fields
 
     def _source(self, source_ref: str) -> dict[str, Any]:
         source_id, version = parse_versioned_ref(source_ref, "work.source_ref")

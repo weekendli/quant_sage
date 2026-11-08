@@ -98,3 +98,17 @@ The real workflow command completed in approximately 26 seconds including the ca
 - F07/F08 business aggregation remains `pending_semantics`; only direct snapshot F07/F08 primitives are available.
 - The current execution-spec E2E target is the ready Step 02–05 subset. It does not claim the later events/regimes/phenomena/hypothesis/cube/falsification/planner stages from the full Step 13 roadmap.
 - Availability remains `research_only`; descriptive results do not establish causal effects or future predictive value.
+
+## 2026-11-08 remediation replay
+
+After the F1/F2/F3/T9 fixes, the isolated real A→Review→B→C path was rerun against a new catalog namespace and workspace:
+
+| Stage | Run | Result |
+|---|---|---|
+| A | `run_979612f3321f4f7da50f0eb4aedcb9c6` | COMPLETE, 6 works |
+| Review | `remediation-20261108-review-a` | `investigate`, evidence-bound |
+| B | `run_2a73644414724e1188ebc02e46bd9060` | COMPLETE; `CACHED=4`, `SUCCEEDED=6`, `SKIPPED=2` |
+| C | `run_926c31dd06f840ec9dfdb8b1482d6b7a` | COMPLETE; one added definition; `CACHED=8`, `SUCCEEDED=2`, `SKIPPED=4` |
+| Pending F07 | `run_afaef3f6d2144c4d8ff06d3f2dc08081` | BLOCKED / `PENDING_SEMANTICS` |
+
+Explicit empty selection remained `NO_WORK` with zero work units. Full pytest: 344 passed. See [remediation verification](../../acceptance/2026-11-08/REMEDIATION_VERIFICATION.md).

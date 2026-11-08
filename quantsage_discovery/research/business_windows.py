@@ -14,15 +14,23 @@ import pyarrow.parquet as pq
 
 from quantsage_discovery.core.errors import ArtifactValidationError
 
+from .gap_policy import (
+    GAP_POLICY_VERSION,
+    KNOWN_SOURCE_GAP,
+    WindowGapContext,
+    gap_event_ids,
+    gap_evidence_record_ids,
+    matching_gap_events,
+)
 from .providers import FEATURE_VALUES_SCHEMA, make_feature_values_table
 
 PROVIDER_ID = "quantsage_business_windows"
 PROVIDER_KEY = "builtin.business_windows"
-CATALOG_VERSION = "1.0.0"
-IMPLEMENTATION_VERSION = "business_windows_v1"
-FORMULA_REF = "gov_bond_l2_business_windows@1"
+CATALOG_VERSION = "2.0.0"
+IMPLEMENTATION_VERSION = "business_windows_v2"
+FORMULA_REF = "gov_bond_l2_business_windows@2"
 BUSINESS_AUDIT_TYPE = "business_window_audit"
-BUSINESS_AUDIT_SCHEMA_VERSION = "business_window_audit_v1"
+BUSINESS_AUDIT_SCHEMA_VERSION = "business_window_audit_v2"
 BUSINESS_AUDIT_SCHEMA = pa.schema([
     pa.field("event_time", pa.timestamp("us", tz="UTC"), nullable=False),
     pa.field("instrument_id", pa.string(), nullable=False),
@@ -39,6 +47,11 @@ BUSINESS_AUDIT_SCHEMA = pa.schema([
     pa.field("matched_tick_time", pa.timestamp("us", tz="UTC")),
     pa.field("max_endpoint_age_seconds", pa.float64()),
     pa.field("warning_flags", pa.list_(pa.string()), nullable=False),
+    pa.field("source_gap_event_ids", pa.list_(pa.string()), nullable=False),
+    pa.field("source_gap_evidence_record_ids", pa.list_(pa.string()), nullable=False),
+    pa.field("gap_manifest_uri", pa.string()),
+    pa.field("gap_manifest_hash", pa.string()),
+    pa.field("gap_policy_version", pa.string(), nullable=False),
 ])
 LOOKBACKS = ("1s", "3s", "1m", "5m", "10m", "15m", "30m", "60m")
 SPACES = ("d0", "d1", "d2", "d3", "d5")
@@ -79,7 +92,7 @@ def validate_business_audit_parquet(path: Any) -> None:
         raise ArtifactValidationError(f"cannot read business audit Parquet: {exc}") from exc
     if not parquet.schema_arrow.equals(BUSINESS_AUDIT_SCHEMA, check_metadata=False):
         raise ArtifactValidationError(
-            "business audit schema does not match business_window_audit_v1"
+            "business audit schema does not match business_window_audit_v2"
         )
 
 
@@ -149,6 +162,7 @@ def business_template_documents() -> list[dict[str, Any]]:
                 "reason_codes": [
                     "HISTORY_INSUFFICIENT", "NO_VALID_OBSERVATIONS", "WINDOW_RESET",
                     "ENDPOINT_MISSING", "ENDPOINT_AGE_EXCEEDED", "ZERO_DENOMINATOR",
+                    KNOWN_SOURCE_GAP,
                 ],
             },
         }
@@ -191,8 +205,7 @@ def business_catalog_entries() -> list[dict[str, Any]]:
 
 def _entry(family_id: str, family: str, parameters: dict[str, str],
            lookback: str, pending: bool) -> dict[str, Any]:
-    suffix = "".join(f"__{key[0]}{value[1:]}" if key == "space" else f"__{value}"
-                     for key, value in parameters.items())
+    suffix = "".join(f"__{value}" for value in parameters.values())
     return {
         "factor_name": f"{family_id}{suffix}__h{lookback}",
         "family": family,
@@ -201,6 +214,22 @@ def _entry(family_id: str, family: str, parameters: dict[str, str],
         "lookback": lookback,
         "status": "pending_semantics" if pending else "ready",
     }
+
+
+def legacy_factor_name_aliases() -> dict[str, str]:
+    """Map only the historical v1 s-space display names to canonical d-space names.
+
+    The aliases are not emitted by the new catalog and do not merge definitions.
+    They provide an auditable lookup for references written against catalog v1.
+    """
+    aliases = {}
+    for entry in business_catalog_entries():
+        if "space" not in entry["parameters"]:
+            continue
+        canonical = entry["factor_name"]
+        legacy = canonical.replace("__d", "__s", 1)
+        aliases[legacy] = canonical
+    return dict(sorted(aliases.items()))
 
 
 def register_business_catalog(service: Any) -> dict[str, Any]:
@@ -214,24 +243,36 @@ def compute_business_window(
     feature: dict[str, Any],
     inputs: dict[str, dict[str, Any]],
     partition: dict[str, Any],
+    *,
+    context: dict[str, Any] | WindowGapContext | None = None,
 ) -> BusinessOutput:
     family_id = feature["template_ref"].split("@", 1)[0].removeprefix("business_")
     if _TEMPLATES[family_id][3]:
         raise ArtifactValidationError(f"{family_id} horizon aggregation is pending")
+    window_context = _window_context(context)
     lookback_ns = _duration_ns(feature.get("time_policy", {}).get("lookback"))
     lookback = timedelta(microseconds=(lookback_ns + 999) // 1_000)
     prepared = {role: _prepared_table(data["table"]) for role, data in inputs.items()}
     if family_id in {"spread_ticks", "obi", "wobi", "min_coverage", "capacity_imb",
                      "size_spread"}:
-        return _rolling_mean(feature, prepared["input"], partition, lookback)
+        return _rolling_mean(
+            feature, prepared["input"], partition, lookback, window_context,
+            ("input",),
+        )
     if family_id in {"active_flow_imb", "flow_impact_eff"}:
         max_age = _max_age(feature)
-        return _flow_windows(family_id, feature, prepared, partition, lookback, max_age)
+        return _flow_windows(
+            family_id, feature, prepared, partition, lookback, max_age, window_context,
+        )
     if family_id == "volume_to_depth":
-        return _volume_depth_window(prepared, partition, lookback)
+        return _volume_depth_window(
+            prepared, partition, lookback, window_context, ("volume", "depth"),
+        )
     if family_id == "mid_move_ticks":
         max_age = _max_age(feature)
-        return _mid_move_window(prepared, partition, lookback, max_age)
+        return _mid_move_window(
+            prepared, partition, lookback, max_age, window_context, ("mid", "tick"),
+        )
     raise ArtifactValidationError(f"unsupported business family: {family_id}")
 
 
@@ -239,17 +280,55 @@ def _prepared_table(table: pa.Table) -> dict[str, Any]:
     rows = sorted(table.to_pylist(), key=lambda row: row["event_time"])
     times = [row["event_time"] for row in rows]
     values = [row["value"] for row in rows]
-    prefix_sum = [0.0]
-    prefix_count = [0]
-    for value in values:
-        valid = value is not None and math.isfinite(value)
-        prefix_sum.append(prefix_sum[-1] + (float(value) if valid else 0.0))
-        prefix_count.append(prefix_count[-1] + int(valid))
-    return {"rows": rows, "times": times, "values": values,
-            "prefix_sum": prefix_sum, "prefix_count": prefix_count}
+    return {"rows": rows, "times": times, "values": values}
 
 
-def _rolling_mean(feature, data, partition, lookback) -> BusinessOutput:
+def _window_context(
+    context: dict[str, Any] | WindowGapContext | None,
+) -> WindowGapContext:
+    if context is None:
+        raise ArtifactValidationError(
+            "business windows require explicit true-session/history/gap context"
+        )
+    if isinstance(context, WindowGapContext):
+        return context
+    return WindowGapContext.from_document(context)
+
+
+def _window_gaps(
+    context: WindowGapContext,
+    partition: dict[str, Any],
+    roles: tuple[str, ...],
+    start: datetime,
+    end: datetime,
+    *,
+    include_start: bool,
+) -> tuple[dict[str, Any], ...]:
+    return matching_gap_events(
+        context,
+        roles=roles,
+        exchange=partition.get("exchange"),
+        instrument_id=partition["instrument_id"],
+        trade_date=str(partition["trade_date"]),
+        session_id=partition["session_id"],
+        start=start,
+        end=end,
+        include_start=include_start,
+    )
+
+
+def _warning_flags(
+    context: WindowGapContext,
+    roles: tuple[str, ...],
+    row: dict[str, Any],
+) -> list[str]:
+    return sorted({
+        *context.warning_flags_for(roles),
+        *(str(flag) for flag in row.get("quality_flags") or ()),
+    })
+
+
+def _rolling_mean(feature, data, partition, lookback, context, roles) -> BusinessOutput:
     start, end = _as_utc(partition["start"]), _as_utc(partition["end"])
     values, audits = [], []
     reasons: Counter[str] = Counter()
@@ -260,26 +339,40 @@ def _rolling_mean(feature, data, partition, lookback) -> BusinessOutput:
         low = bisect.bisect_right(data["times"], event_time - lookback)
         high = bisect.bisect_right(data["times"], event_time)
         n_total = high - low
-        n_valid = data["prefix_count"][high] - data["prefix_count"][low]
+        valid_values = [
+            float(value) for value in data["values"][low:high]
+            if value is not None and math.isfinite(value)
+        ]
+        n_valid = len(valid_values)
         reason = None
         value = None
-        if event_time - lookback < start:
+        window_start = event_time - lookback
+        gap_events = _window_gaps(
+            context, partition, roles, window_start, event_time, include_start=False,
+        )
+        if context.history_is_insufficient(window_start):
             reason = "HISTORY_INSUFFICIENT"
+        elif gap_events:
+            reason = KNOWN_SOURCE_GAP
         elif n_total == 0 or n_valid == 0:
             reason = "NO_VALID_OBSERVATIONS"
         else:
-            value = ((data["prefix_sum"][high] - data["prefix_sum"][low]) / n_valid)
+            value = math.fsum(valid_values) / n_valid
         if reason:
             reasons[reason] += 1
         values.append(_value_row(row, value, None))
         audits.append(_audit_row(
-            row, event_time - lookback, n_total, n_valid, reason,
-            warning_flags=row.get("quality_flags", []),
+            row, window_start, n_total, n_valid, reason,
+            warning_flags=_warning_flags(context, roles, row),
+            gap_events=gap_events,
+            gap_context=context,
         ))
     return _output(values, audits, reasons, feature)
 
 
-def _flow_windows(family_id, feature, tables, partition, lookback, max_age) -> BusinessOutput:
+def _flow_windows(
+    family_id, feature, tables, partition, lookback, max_age, context,
+) -> BusinessOutput:
     start, end = _as_utc(partition["start"]), _as_utc(partition["end"])
     buy, sell = tables["buy"], tables["sell"]
     values, audits = [], []
@@ -298,8 +391,21 @@ def _flow_windows(family_id, feature, tables, partition, lookback, max_age) -> B
         audit_total = 1
         audit_valid = 0
         mid_match = mid_now = tick_now = None
-        if t - lookback < start:
+        roles = (
+            ("buy", "sell", "buy_reset", "sell_reset")
+            if family_id == "active_flow_imb"
+            else (
+                "buy", "sell", "buy_reset", "sell_reset", "volume", "depth",
+                "mid", "tick",
+            )
+        )
+        gap_events = _window_gaps(
+            context, partition, roles, window_start, t, include_start=True,
+        )
+        if context.history_is_insufficient(window_start):
             reason = "HISTORY_INSUFFICIENT"
+        elif gap_events:
+            reason = KNOWN_SOURCE_GAP
         elif b_match is None or s_match is None or current_b is None or current_s is None:
             reason = "ENDPOINT_MISSING"
         elif b_match[2] > max_age or s_match[2] > max_age:
@@ -322,7 +428,11 @@ def _flow_windows(family_id, feature, tables, partition, lookback, max_age) -> B
                 low = bisect.bisect_right(volume["times"], window_start)
                 high = bisect.bisect_right(volume["times"], t)
                 n_total = high - low
-                n_valid = volume["prefix_count"][high] - volume["prefix_count"][low]
+                valid_volume = [
+                    float(value) for value in volume["values"][low:high]
+                    if value is not None and math.isfinite(value)
+                ]
+                n_valid = len(valid_volume)
                 audit_total = n_total
                 audit_valid = n_valid
                 depth_avg = _window_mean(depth, window_start, t)
@@ -355,11 +465,14 @@ def _flow_windows(family_id, feature, tables, partition, lookback, max_age) -> B
             matched_buy=b_match, matched_sell=s_match,
             matched_mid=(mid_match if family_id == "flow_impact_eff" else None),
             matched_tick=(tick_now if family_id == "flow_impact_eff" else None),
+            warning_flags=_warning_flags(context, roles, row),
+            gap_events=gap_events,
+            gap_context=context,
         ))
     return _output(values, audits, reasons, feature)
 
 
-def _volume_depth_window(tables, partition, lookback) -> BusinessOutput:
+def _volume_depth_window(tables, partition, lookback, context, roles) -> BusinessOutput:
     volume, depth = tables["volume"], tables["depth"]
     start, end = _as_utc(partition["start"]), _as_utc(partition["end"])
     values, audits = [], []
@@ -371,29 +484,47 @@ def _volume_depth_window(tables, partition, lookback) -> BusinessOutput:
         ws = t - lookback
         low, high = bisect.bisect_right(volume["times"], ws), bisect.bisect_right(volume["times"], t)
         n_total = high - low
-        n_valid = volume["prefix_count"][high] - volume["prefix_count"][low]
+        valid_volume = [
+            float(value) for value in volume["values"][low:high]
+            if value is not None and math.isfinite(value)
+        ]
+        n_valid = len(valid_volume)
         d_low, d_high = bisect.bisect_right(depth["times"], ws), bisect.bisect_right(depth["times"], t)
-        d_valid = depth["prefix_count"][d_high] - depth["prefix_count"][d_low]
+        valid_depth = [
+            float(value) for value in depth["values"][d_low:d_high]
+            if value is not None and math.isfinite(value)
+        ]
+        d_valid = len(valid_depth)
         reason = value = None
-        if ws < start:
+        gap_events = _window_gaps(
+            context, partition, roles, ws, t, include_start=False,
+        )
+        if context.history_is_insufficient(ws):
             reason = "HISTORY_INSUFFICIENT"
+        elif gap_events:
+            reason = KNOWN_SOURCE_GAP
         elif n_total == 0 or n_valid != n_total or d_valid == 0:
             reason = "NO_VALID_OBSERVATIONS"
         else:
-            depth_avg = (depth["prefix_sum"][d_high] - depth["prefix_sum"][d_low]) / d_valid
+            depth_avg = math.fsum(valid_depth) / d_valid
             if depth_avg == 0:
                 reason = "ZERO_DENOMINATOR"
             else:
-                volume_sum = volume["prefix_sum"][high] - volume["prefix_sum"][low]
+                volume_sum = math.fsum(valid_volume)
                 value = volume_sum / depth_avg
         if reason:
             reasons[reason] += 1
         values.append(_value_row(row, value, None))
-        audits.append(_audit_row(row, ws, n_total, n_valid, reason))
+        audits.append(_audit_row(
+            row, ws, n_total, n_valid, reason,
+            warning_flags=_warning_flags(context, roles, row),
+            gap_events=gap_events,
+            gap_context=context,
+        ))
     return _output(values, audits, reasons, None)
 
 
-def _mid_move_window(tables, partition, lookback, max_age) -> BusinessOutput:
+def _mid_move_window(tables, partition, lookback, max_age, context, roles) -> BusinessOutput:
     mid, tick = tables["mid"], tables["tick"]
     start, end = _as_utc(partition["start"]), _as_utc(partition["end"])
     values, audits = [], []
@@ -407,8 +538,13 @@ def _mid_move_window(tables, partition, lookback, max_age) -> BusinessOutput:
         current = _current(mid, t)
         current_tick = _current(tick, t)
         reason = value = None
-        if ws < start:
+        gap_events = _window_gaps(
+            context, partition, roles, ws, t, include_start=True,
+        )
+        if context.history_is_insufficient(ws):
             reason = "HISTORY_INSUFFICIENT"
+        elif gap_events:
+            reason = KNOWN_SOURCE_GAP
         elif match is None or current is None or current_tick is None:
             reason = "ENDPOINT_MISSING"
         elif match[2] > max_age:
@@ -423,6 +559,9 @@ def _mid_move_window(tables, partition, lookback, max_age) -> BusinessOutput:
         audits.append(_audit_row(
             row, ws, 1, int(value is not None), reason,
             matched_mid=match, matched_tick=current_tick,
+            warning_flags=_warning_flags(context, roles, row),
+            gap_events=gap_events,
+            gap_context=context,
         ))
     return _output(values, audits, reasons, None)
 
@@ -452,10 +591,13 @@ def _has_reset(data, start, end) -> bool:
 def _window_mean(data, start, end):
     low = bisect.bisect_right(data["times"], start)
     high = bisect.bisect_right(data["times"], end)
-    count = data["prefix_count"][high] - data["prefix_count"][low]
-    if count == 0:
+    valid_values = [
+        float(value) for value in data["values"][low:high]
+        if value is not None and math.isfinite(value)
+    ]
+    if not valid_values:
         return None
-    return (data["prefix_sum"][high] - data["prefix_sum"][low]) / count
+    return math.fsum(valid_values) / len(valid_values)
 
 
 def _value_row(row, value, available):
@@ -471,7 +613,7 @@ def _value_row(row, value, available):
 
 def _audit_row(row, window_start, n_total, n_valid, reason, *, matched_buy=None,
                matched_sell=None, matched_mid=None, matched_tick=None,
-               warning_flags=None) -> dict[str, Any]:
+               warning_flags=None, gap_events=(), gap_context=None) -> dict[str, Any]:
     max_age = max(
         ((item[2] if len(item) > 2 else timedelta(0)).total_seconds()
          for item in (matched_buy, matched_sell, matched_mid, matched_tick)
@@ -494,6 +636,15 @@ def _audit_row(row, window_start, n_total, n_valid, reason, *, matched_buy=None,
         "matched_tick_time": matched_tick[1] if matched_tick else None,
         "max_endpoint_age_seconds": max_age,
         "warning_flags": list(warning_flags or []),
+        "source_gap_event_ids": gap_event_ids(gap_events),
+        "source_gap_evidence_record_ids": gap_evidence_record_ids(gap_events),
+        "gap_manifest_uri": (
+            gap_context.gap_manifest_uri if gap_context is not None else None
+        ),
+        "gap_manifest_hash": (
+            gap_context.gap_manifest_hash if gap_context is not None else None
+        ),
+        "gap_policy_version": GAP_POLICY_VERSION,
     }
 
 

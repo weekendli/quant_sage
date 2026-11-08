@@ -17,7 +17,7 @@ import pytest
 
 from quantsage_discovery.core.artifacts import artifact_path
 from quantsage_discovery.core.registry import Registry
-from quantsage_discovery.research import ResearchService
+from quantsage_discovery.research import ResearchService, planner
 from quantsage_discovery.research.l2_primitives import (
     CATALOG_VERSION,
     L2_PRIMITIVE_AUDIT_SCHEMA,
@@ -31,7 +31,6 @@ from quantsage_discovery.research.onboarding_adapter import (
 )
 from quantsage_discovery.research.planner import (
     _needs_tick_size,
-    _source_identity_hash,
     _source_requirements_block,
 )
 from tests.test_onboarding_adapter import _fixture_entry
@@ -402,7 +401,7 @@ def test_appending_future_rows_does_not_change_prefix(primitive_id: str) -> None
     assert left.values["value"].to_pylist() == right.values["value"].to_pylist()[:5]
 
 
-def test_metadata_reference_changes_source_identity() -> None:
+def test_source_identity_changes_for_each_relevant_single_factor() -> None:
     source = {
         "schema_version": "data_source_v1",
         "source_id": "source",
@@ -421,13 +420,34 @@ def test_metadata_reference_changes_source_identity() -> None:
         "availability_mode": "research_only",
         "access_policy_ref": {"uri": "file:///access.json", "content_hash": "sha256:" + "6" * 64},
     }
-    baseline = _source_identity_hash(source)
-    supplemented = deepcopy(source)
-    supplemented["version"] = 2
-    supplemented["market_metadata_ref"] = {
+    baseline = planner._source_identity_hash(source)
+    assert planner._source_identity_hash(deepcopy(source)) == baseline
+
+    metadata_only = deepcopy(source)
+    metadata_only["market_metadata_ref"] = {
         "uri": "file:///metadata.json", "content_hash": "sha256:" + "7" * 64,
     }
-    assert _source_identity_hash(supplemented) != baseline
+    assert planner._source_identity_hash(metadata_only) != baseline
+
+    version_only = deepcopy(source)
+    version_only["version"] = 2
+    assert planner._source_identity_hash(version_only) != baseline
+
+    gap_only = deepcopy(source)
+    gap_only["gap_manifest_ref"] = {
+        "uri": "file:///gap.json", "content_hash": "sha256:" + "8" * 64,
+    }
+    assert planner._source_identity_hash(gap_only) != baseline
+
+    content_only = deepcopy(source)
+    content_only["content_hash"] = "sha256:" + "9" * 64
+    assert planner._source_identity_hash(content_only) != baseline
+
+    split_policy_only = deepcopy(source)
+    split_policy_only["access_policy_ref"] = {
+        "uri": "file:///access-v2.json", "content_hash": "sha256:" + "a" * 64,
+    }
+    assert planner._source_identity_hash(split_policy_only) != baseline
 
 
 def test_tick_requirement_distinguishes_d0_from_nonzero_space() -> None:

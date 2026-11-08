@@ -287,6 +287,61 @@ _PRIMITIVES = {
         "dependency_mask": ["market_metadata_ref"],
     },
 }
+
+_ALL_FIVE_LEVEL_FIELDS = frozenset(
+    f"{side}_{field}_{level}"
+    for side in ("bid", "ask")
+    for field in ("price", "size")
+    for level in range(1, 6)
+)
+_L1_FIELDS = frozenset({
+    "bid_price_1", "ask_price_1", "bid_size_1", "ask_size_1",
+})
+_BID_BOOK_FIELDS = frozenset(
+    f"bid_{field}_{level}"
+    for field in ("price", "size")
+    for level in range(1, 6)
+)
+_ASK_BOOK_FIELDS = frozenset(
+    f"ask_{field}_{level}"
+    for field in ("price", "size")
+    for level in range(1, 6)
+)
+
+
+def primitive_source_fields(primitive_id: str) -> frozenset[str]:
+    """Return raw source fields whose invalid evidence affects a primitive."""
+    spec = _PRIMITIVES.get(primitive_id)
+    if spec is None:
+        return frozenset()
+    fields: set[str] = set()
+    for dependency in spec["dependency_mask"]:
+        if dependency.startswith(("bid_", "ask_")) and dependency[-1:].isdigit():
+            fields.add(dependency)
+        elif dependency == "valid_l1":
+            fields.update(_L1_FIELDS)
+        elif dependency in {
+            "space_depth", "space_depth_bid", "space_depth_ask",
+            "weighted_depth_bid", "weighted_depth_ask", "depth_ref",
+            "target_size", "full_book", "vwap", "fill_distance",
+        }:
+            fields.update(_ALL_FIVE_LEVEL_FIELDS)
+        elif dependency == "full_bid_book":
+            fields.update(_BID_BOOK_FIELDS)
+        elif dependency == "full_ask_book":
+            fields.update(_ASK_BOOK_FIELDS)
+        elif dependency == "mid":
+            fields.update({"bid_price_1", "ask_price_1"})
+        elif dependency == "volume_increment":
+            fields.update({"volume_increment", "TRADEVOLUME"})
+        elif dependency in {"BUYVOL", "SELLVOL"}:
+            fields.add(dependency)
+        elif dependency in {
+            "event_time", "session_id", "stable_source_order", "session_order",
+        }:
+            fields.update({"event_time", "session_id"})
+        # Static metadata requirements have no source-row gap field.
+    return frozenset(fields)
 _BOOK_COLUMNS = [
     f"{side}_{field}_{level}" for side in ("bid", "ask")
     for field in ("price", "size") for level in range(1, 6)

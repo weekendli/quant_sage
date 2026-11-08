@@ -125,3 +125,13 @@ Complete suite: 314 passed. Full-project Ruff: passed. Tests cover the exact 22-
 Limits: this Run uses primitive input and selected metrics. The separate ready Step 02–05 business-ref A/B/C closure is recorded in [Step 13 RESULTS](../13_end_to_end_integration/RESULTS.md). Retrospective segment-summary mode remains pending. No Atlas, conditional baseline, anomaly or null model was fabricated.
 
 Next increment: **E2E A/B/C**.
+
+## 05 remediation: gap inheritance and raw-mid policy — 2026-11-08
+
+- Published `quantsage_statistical_windows@2.0.0` / `statistical_windows_v4`, `step05_input_whitelist@2` and `statistical_window_audit_v2`.
+- Primitive-only trailing windows check field-relevant source gaps. Business-input windows also inherit serialized parent `KNOWN_SOURCE_GAP` evidence; the full W result remains NA until the parent gap leaves both source sampling bins and the upstream L effect.
+- Raw `mid` permits original-unit descriptions such as mean/std/median/quantiles but rejects catch22/tsfeatures shape extensions at both FeatureSet freeze and execution.
+- Added independent sample-`std(ddof=1)`, MAD/IQR/quantile/ratio, true median-tie and exact backend catalog/golden-order tests. No golden was regenerated.
+- Reused/expanded A/B/C Runs retained exact cache reuse; full suite 344 passed and Ruff passed.
+
+See [remediation verification](../../acceptance/2026-11-08/REMEDIATION_VERIFICATION.md).

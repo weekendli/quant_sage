@@ -18,6 +18,14 @@ from quantsage_discovery.core.errors import ArtifactValidationError
 
 from .business_windows import BUSINESS_AUDIT_SCHEMA, BusinessOutput
 from .errors import ResearchValidationError
+from .gap_policy import (
+    GAP_POLICY_VERSION,
+    KNOWN_SOURCE_GAP,
+    WindowGapContext,
+    gap_event_ids,
+    gap_evidence_record_ids,
+    matching_gap_events,
+)
 from .providers import FEATURE_VALUES_SCHEMA, make_feature_values_table
 from .statistical_backends import (
     CATCH22_NAMES,
@@ -34,12 +42,12 @@ from .statistical_backends import (
 
 PROVIDER_ID = "quantsage_statistical_windows"
 PROVIDER_KEY = "builtin.statistical_windows"
-CATALOG_VERSION = "1.1.0"
-IMPLEMENTATION_VERSION = "statistical_windows_v3"
-FORMULA_REF = "quantsage_statistical_descriptions@1"
-INPUT_VIEW_POLICY = "step05_input_whitelist@1"
+CATALOG_VERSION = "2.0.0"
+IMPLEMENTATION_VERSION = "statistical_windows_v4"
+FORMULA_REF = "quantsage_statistical_descriptions@2"
+INPUT_VIEW_POLICY = "step05_input_whitelist@2"
 STATISTICAL_AUDIT_TYPE = "statistical_window_audit"
-STATISTICAL_AUDIT_SCHEMA_VERSION = "statistical_window_audit_v1"
+STATISTICAL_AUDIT_SCHEMA_VERSION = "statistical_window_audit_v2"
 STATISTICAL_AUDIT_SCHEMA = BUSINESS_AUDIT_SCHEMA.append(pa.field("metric_id", pa.string()))
 for _field in (
     pa.field("library_name", pa.string()),
@@ -66,7 +74,7 @@ def validate_statistical_audit_parquet(path: Any) -> None:
         ) from exc
     if not parquet.schema_arrow.equals(STATISTICAL_AUDIT_SCHEMA, check_metadata=False):
         raise ArtifactValidationError(
-            "statistical audit schema does not match statistical_window_audit_v1"
+            "statistical audit schema does not match statistical_window_audit_v2"
         )
 
 METRICS = {
@@ -99,6 +107,7 @@ _CATCH22_DESCRIPTIONS = {f"c22.{name}" for name in CATCH22_NAMES}
 _TSFEATURE_COMMON = set(TSFEATURES_METRICS) - {"tsf.arch_r2_l12"}
 _COMMON_SHAPE = _CATCH22_DESCRIPTIONS | _TSFEATURE_COMMON
 _ARCH_SHAPE = {"tsf.arch_r2_l12"}
+_ORIGINAL_UNIT_DESCRIPTIONS = _BASE_DESCRIPTIONS - {"unchanged_ratio"}
 
 
 def _profile_metrics(base: set[str], *, signed: bool = False, arch: bool = False) -> set[str]:
@@ -113,7 +122,11 @@ def _profile_metrics(base: set[str], *, signed: bool = False, arch: bool = False
 # shortcut. Boolean controls, cumulative counters and static tick-size rows are
 # not valid profile sequences; derived flow and movement views are allowed.
 INPUT_VIEW_WHITELIST = {
-    "primitive:mid": ("price_dynamics", "quoted_price_unit", _profile_metrics(_BASE_DESCRIPTIONS)),
+    "primitive:mid": (
+        "price_dynamics",
+        "quoted_price_unit",
+        frozenset(_ORIGINAL_UNIT_DESCRIPTIONS),
+    ),
     "primitive:spread_ticks": (
         "price_dynamics", "ticks", _profile_metrics(_NONNEGATIVE_DESCRIPTIONS),
     ),
@@ -255,7 +268,7 @@ def statistical_template_document() -> dict[str, Any]:
             "min_samples": 1,
             "reason_codes": [
                 "INSUFFICIENT_HISTORY", "WINDOW_NA", "STALE_DATA",
-                "CONSTANT_INPUT", "NUMERICAL_FAILURE",
+                "CONSTANT_INPUT", "NUMERICAL_FAILURE", KNOWN_SOURCE_GAP,
             ],
         },
     }
@@ -431,6 +444,9 @@ def compute_statistical_window(
     partition: dict[str, Any],
     read_scope: dict[str, Any],
     input_feature: dict[str, Any] | None = None,
+    input_audit: pa.Table | None = None,
+    *,
+    gap_context: dict[str, Any] | WindowGapContext | None = None,
 ) -> BusinessOutput:
     metric_ref = feature.get("metric_ref")
     metric_key = metric_ref.split("@", 1)[0] if metric_ref else None
@@ -441,6 +457,9 @@ def compute_statistical_window(
     )
     if metric_key not in supported_metrics:
         raise ValueError(f"unsupported statistical metric: {metric_ref}")
+    if input_feature is not None:
+        validate_statistical_input(input_feature, [metric_ref])
+    context = _gap_context(gap_context)
     metric_id = metric_key.removeprefix("stat.")
     window_ns = _duration_ns(feature["time_policy"]["profile_window"])
     sampling = feature["sampling"]
@@ -467,6 +486,11 @@ def compute_statistical_window(
     rows = sorted(input_data["table"].to_pylist(), key=lambda row: row["event_time"])
     times = [row["event_time"] for row in rows]
     values = [row["value"] for row in rows]
+    audit_by_time = (
+        {row["event_time"]: row for row in input_audit.to_pylist()}
+        if input_audit is not None and "event_time" in input_audit.column_names
+        else {}
+    )
     if "session_start" not in read_scope:
         raise ValueError("statistical window requires the true session_start in read_scope")
     session_start = _as_utc(read_scope["session_start"])
@@ -493,6 +517,9 @@ def compute_statistical_window(
         reason = None
         max_age_seen = None
         valid_sample_count = 0
+        sample_gaps: tuple[dict[str, Any], ...] = ()
+        inherited_gap_event_ids: set[str] = set()
+        inherited_evidence_ids: set[str] = set()
         sample_time = grid_time - window + interval
         expected = window_ns // interval_ns
         while sample_time <= grid_time:
@@ -503,13 +530,30 @@ def compute_statistical_window(
                 break
             age = sample_time - times[index]
             max_age_seen = age if max_age_seen is None else max(max_age_seen, age)
+            sample_gaps = _sample_gaps(
+                context, partition, sample_time - interval, sample_time,
+            )
+            if sample_gaps:
+                reason = KNOWN_SOURCE_GAP
+                samples = []
+                break
             if age > max_age:
                 reason = "STALE_DATA"
                 samples = []
                 break
             value = values[index]
             if value is None or not math.isfinite(value):
-                reason = "WINDOW_NA"
+                input_evidence = audit_by_time.get(times[index], {})
+                if input_evidence.get("invalid_reason") == KNOWN_SOURCE_GAP:
+                    reason = KNOWN_SOURCE_GAP
+                    inherited_gap_event_ids.update(
+                        input_evidence.get("source_gap_event_ids") or (),
+                    )
+                    inherited_evidence_ids.update(
+                        input_evidence.get("source_gap_evidence_record_ids") or (),
+                    )
+                else:
+                    reason = "WINDOW_NA"
                 samples = []
                 break
             samples.append(float(value))
@@ -554,7 +598,25 @@ def compute_statistical_window(
             "backend_elapsed_ms": None,
             "backend_warnings": [],
             "n_unique": len(set(samples)),
+            "source_gap_event_ids": sorted({
+                *gap_event_ids(sample_gaps), *inherited_gap_event_ids,
+            }),
+            "source_gap_evidence_record_ids": sorted({
+                *gap_evidence_record_ids(sample_gaps), *inherited_evidence_ids,
+            }),
+            "gap_manifest_uri": (
+                context.gap_manifest_uri if context is not None else None
+            ),
+            "gap_manifest_hash": (
+                context.gap_manifest_hash if context is not None else None
+            ),
+            "gap_policy_version": GAP_POLICY_VERSION,
         })
+        if context is not None:
+            audits[-1]["warning_flags"] = sorted({
+                *audits[-1]["warning_flags"],
+                *context.warning_flags_for(("input",)),
+            })
         if reason is None:
             pending.append((len(output_rows) - 1, samples))
         else:
@@ -730,6 +792,37 @@ def _quantile(ordered: list[float], probability: float) -> float:
         return ordered[lower]
     fraction = position - lower
     return ordered[lower] * (1 - fraction) + ordered[upper] * fraction
+
+
+def _gap_context(
+    context: dict[str, Any] | WindowGapContext | None,
+) -> WindowGapContext | None:
+    if context is None:
+        return None
+    if isinstance(context, WindowGapContext):
+        return context
+    return WindowGapContext.from_document(context)
+
+
+def _sample_gaps(
+    context: WindowGapContext | None,
+    partition: dict[str, Any],
+    start: datetime,
+    end: datetime,
+) -> tuple[dict[str, Any], ...]:
+    if context is None:
+        return ()
+    return matching_gap_events(
+        context,
+        roles=("input",),
+        exchange=partition.get("exchange"),
+        instrument_id=partition["instrument_id"],
+        trade_date=str(partition["trade_date"]),
+        session_id=partition["session_id"],
+        start=start,
+        end=end,
+        include_start=False,
+    )
 
 
 def _duration_ns(value: Any) -> int:

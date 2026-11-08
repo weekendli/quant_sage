@@ -17,12 +17,23 @@ from quantsage_discovery.research.errors import (
     SourceScopeMissingError,
     StudyNotActiveError,
 )
-from tests.research_catalog_fixtures import feature_set_document, recipe_item
+from tests.research_catalog_fixtures import (
+    feature_set_document,
+    primitive_template_document,
+    provider_document,
+    recipe_item,
+)
 from tests.research_execution_fixtures import (
     INSTRUMENT,
     make_execution_environment,
 )
-from tests.research_planning_fixtures import METRIC_MEAN, make_planning_feature_set_document
+from tests.research_planning_fixtures import (
+    METRIC_MEAN,
+    make_plan_request,
+    make_planning_feature_set_document,
+    make_planning_study_document,
+    split_ref_from_fixture,
+)
 
 
 class InjectedCrash(BaseException):
@@ -636,6 +647,94 @@ def test_cache_reuses_actual_producer_and_missing_file_retries_with_new_attempt(
         health_text = json.dumps(old_result.get("health_checks", [])).lower()
         assert "missing" in health_text or "invalid" in health_text
         assert artifact_path(repaired_work["artifacts"][0]["uri"]).exists()
+    finally:
+        registry.close()
+
+
+def test_new_implementation_identity_does_not_reuse_old_cache_and_reuses_its_own(tmp_path):
+    registry, service, source, _, request = make_execution_environment(tmp_path)
+    try:
+        old_submission = _submit(service, request, "old-implementation")
+        old_run = service.execute_run(old_submission["run_id"])
+        old_work = _execution(old_run, "quote")
+        assert old_work["state"] == "SUCCEEDED"
+        old_feature_ref = old_work["feature_ref"]
+        old_result_id = old_work["result_refs"][0]
+
+        provider = provider_document(provider_id="arith_v2", version="1")
+        provider["implementation_version"] = "2.0"
+        service.register_provider(provider)
+        service.register_template(primitive_template_document(
+            template_id="scaled_value_v2",
+            version=1,
+            formula_ref="synthetic.scale@2",
+            provider_ref="arith_v2@1",
+        ))
+        new_document = feature_set_document(
+            feature_set_id="remediated_v2",
+            items=[recipe_item(
+                "quote",
+                template_ref="scaled_value_v2@1",
+                parameters={"scale": 2},
+            )],
+        )
+        draft = service.save_feature_set(new_document)
+        frozen = service.freeze_feature_set(
+            "remediated_v2@1", expected_revision=draft["draft_revision"],
+        )
+        new_feature_ref = next(
+            output["feature_ref"]
+            for item in frozen["resolved_items"]
+            if item["item_id"] == "quote"
+            for output in item["outputs"]
+        )
+        assert new_feature_ref != old_feature_ref
+
+        study = make_planning_study_document(
+            study_id="remediated_study_v2",
+            feature_set_ref="remediated_v2@1",
+            source_ref="planning_source@1",
+        )
+        service.create_study(study)
+        new_request = make_plan_request(
+            split_ref_from_fixture(source),
+            study_id="remediated_study_v2",
+            feature_set_ref="remediated_v2@1",
+            selected_item_ids=["quote"],
+            include_selection=True,
+        )
+        preview = service.plan_run(new_request)
+        quote_plan = next(work for work in preview["work"] if "quote" in work["item_ids"])
+        assert quote_plan["feature_ref"] == new_feature_ref
+        assert quote_plan["cache_candidate"] is False
+
+        new_submission = service.submit_run(
+            new_request,
+            request_key="new-implementation",
+            expected_plan_hash=preview["plan_hash"],
+        )
+        new_run = service.execute_run(new_submission["run_id"])
+        new_work = _execution(new_run, "quote")
+        assert new_work["state"] == "SUCCEEDED"
+        assert new_work["result_refs"][0] != old_result_id
+        assert new_work["feature_ref"] == new_feature_ref
+
+        reuse_preview = service.plan_run(new_request)
+        reuse_quote = next(
+            work for work in reuse_preview["work"] if "quote" in work["item_ids"]
+        )
+        assert reuse_quote["cache_candidate"] is True
+        assert reuse_quote["candidate_result_ref"] == new_work["result_refs"][0]
+        reused_submission = service.submit_run(
+            new_request,
+            request_key="new-implementation-reuse",
+            expected_plan_hash=reuse_preview["plan_hash"],
+        )
+        reused_run = service.execute_run(reused_submission["run_id"])
+        reused_work = _execution(reused_run, "quote")
+        assert reused_work["state"] == "CACHED"
+        assert reused_work["cache_source_run_id"] == new_run["run_id"]
+        assert reused_work["result_refs"] == new_work["result_refs"]
     finally:
         registry.close()
 
